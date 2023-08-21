@@ -1,10 +1,8 @@
 import { getChatMessages } from "@/app/(dashboard)/dashboard/chat/[chatId]/page";
 import ChatInput from "@/components/ChatInput";
-import FriendsRequestSidebarOption from "@/components/FriendsRequestSidebarOption";
 import { Icon, Icons } from "@/components/Icons";
 import Messages from "@/components/Messages";
-import MobileChatLayout from "@/components/MobileChatLayout";
-import SidebarChatList from "@/components/SidebarChatList";
+import MobileChatWatchLayout from "@/components/MobileChatWatchLayout";
 import SignoutButton from "@/components/SignoutButton";
 import { getFriendsById } from "@/helpers/getfriendsbyid";
 import { fetchRedis } from "@/helpers/redis";
@@ -57,11 +55,11 @@ const Layout = async ({ children, params }: LayoutProps) => {
   return (
     <div className="w-full h-screen flex">
       <div className="md:hidden">
-        <MobileChatLayout
-          friends={friends}
-          session={session}
-          sidebarOptions={sidebarOptions}
-          unseenRequestCount={unseenRequestCount}
+        <MobileChatWatchLayout
+          chatId={chatId}
+          user={session.user}
+          chatPartner={chatPartner}
+          initialMessages={initialMessages}
         />
       </div>
 
