@@ -92,7 +92,7 @@ const MobileChatLayout: FC<MobileChatLayoutProps> = ({
                           </div>
                         ) : null}
 
-                        <nav className="flex flex-1 flex-col">
+                        <nav className="flex flex-1 flex-col h-full">
                           <ul
                             role="list"
                             className="flex flex-1 flex-col gap-y-7"

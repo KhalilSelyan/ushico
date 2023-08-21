@@ -1,8 +1,7 @@
 import { getFriendsById } from "@/helpers/getfriendsbyid";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import axios from "axios";
-
+import { distanceFromDateInHours } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import { fetchRedis } from "@/helpers/redis";
 import { hrefChatConstructor } from "@/lib/utils";
@@ -61,6 +60,13 @@ const page = async () => {
               className="border border-zinc-200 bg-zinc-50 relative p-4 rounded-md"
             >
               <div className="absolute right-4 inset-y-0 flex items-center">
+                <div className="hidden md:block text-sm text-zinc-500 mr-2">
+                  {friend.lastMessage
+                    ? distanceFromDateInHours(
+                        new Date(friend.lastMessage.timestamp)
+                      )
+                    : null}
+                </div>
                 <ChevronRight className="w-6 h-6 text-zinc-400" />
               </div>
               <Link
@@ -69,8 +75,8 @@ const page = async () => {
                   friend.id
                 )}`}
               >
-                <div className="flex items-center">
-                  <div className="relative w-12 h-12 mr-4">
+                <div className="flex items-center w-full">
+                  <div className="relative h-8 w-8 sm:w-12 sm:h-12 aspect-square">
                     <Image
                       src={friend.image}
                       alt={friend.name}
@@ -79,22 +85,16 @@ const page = async () => {
                       referrerPolicy="no-referrer"
                     />
                   </div>
-                  <div className="flex flex-col">
+                  <div className="flex flex-col w-full px-6 sm:px-8">
                     <span className="font-bold">{friend.name}</span>
                     {friend.lastMessage && (
-                      <div className="flex items-center">
-                        <span className="text-sm text-zinc-500">
+                      <div className="flex justify-between w-full items-center">
+                        <div className="text-sm text-zinc-500">
                           {friend.lastMessage.senderId === session.user.id && (
                             <span className="mr-1">You: </span>
                           )}
                           {friend.lastMessage.text}
-                        </span>
-                        <span className="text-sm text-zinc-500 ml-2">
-                          at{" "}
-                          {new Date(
-                            friend.lastMessage.timestamp
-                          ).toLocaleString()}
-                        </span>
+                        </div>
                       </div>
                     )}
                   </div>
