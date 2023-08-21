@@ -55,7 +55,7 @@ const Page = async ({ params }: PageProps) => {
       <div className="flex relative sm:items-center justify-between py-3 px-4 border-b-2 border-gray-200">
         <div className="flex relative items-center space-x-4">
           <div className="relative">
-            <div className="relative h-8 sm:h-12 w-8 sm:w-12">
+            <div className="relative -z-10 h-8 sm:h-12 w-8 sm:w-12">
               {chatPartner.image ? (
                 <Image
                   src={chatPartner.image}
@@ -68,7 +68,7 @@ const Page = async ({ params }: PageProps) => {
                 <User2Icon className="h-8 sm:h-12 w-8 sm:w-12" />
               )}
             </div>
-            <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-white" />
+            {/* <div className="absolute bottom-0 -z-10 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-white" /> */}
           </div>
           <div className="flex flex-col">
             <h2 className="text-lg sm:text-2xl font-semibold text-gray-800">
