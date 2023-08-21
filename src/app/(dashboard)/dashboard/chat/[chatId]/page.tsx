@@ -3,9 +3,10 @@ import Messages from "@/components/Messages";
 import { fetchRedis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
 import { messageListValidator } from "@/lib/validators/messages";
-import { User2Icon } from "lucide-react";
+import { MonitorPlay, User2Icon } from "lucide-react";
 import { getServerSession } from "next-auth";
 import Image from "next/image";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 interface PageProps {
@@ -14,7 +15,7 @@ interface PageProps {
   };
 }
 
-async function getChatMessages(chatId: string) {
+export async function getChatMessages(chatId: string) {
   try {
     const result: string[] = await fetchRedis(
       "zrange",
@@ -79,6 +80,9 @@ const Page = async ({ params }: PageProps) => {
             </p>
           </div>
         </div>
+        <Link href={`/watch/${chatId}`}>
+          <MonitorPlay className="h-8 w-8 text-gray-400 hover:text-indigo-600 cursor-pointer" />
+        </Link>
       </div>
       <Messages
         chatId={chatId}

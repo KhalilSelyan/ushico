@@ -27,3 +27,8 @@ export async function getFriendsById(id: string) {
 
   return friendsResolved;
 }
+
+export async function getSpecificUserById(id: string) {
+  console.log("getSpecificUserById", id);
+  return JSON.parse(await fetchRedis("get", `user:${id}`)) as User;
+}
