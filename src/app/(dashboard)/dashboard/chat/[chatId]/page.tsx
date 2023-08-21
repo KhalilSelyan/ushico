@@ -52,8 +52,8 @@ const Page = async ({ params }: PageProps) => {
 
   return (
     <div className="flex flex-col flex-1 justify-between h-full max-h-[calc(100dvh-6rem)]">
-      <div className="flex sm:items-center justify-between py-3 px-4 border-b-2 border-gray-200">
-        <div className="flex items-center space-x-4">
+      <div className="flex relative sm:items-center justify-between py-3 px-4 border-b-2 border-gray-200">
+        <div className="flex relative items-center space-x-4">
           <div className="relative">
             <div className="relative h-8 sm:h-12 w-8 sm:w-12">
               {chatPartner.image ? (
@@ -62,7 +62,7 @@ const Page = async ({ params }: PageProps) => {
                   layout="fill"
                   referrerPolicy="no-referrer"
                   alt={`${chatPartner.name} picture`}
-                  className="rounded-full"
+                  className="rounded-full -z-10 object-cover"
                 />
               ) : (
                 <User2Icon className="h-8 sm:h-12 w-8 sm:w-12" />
