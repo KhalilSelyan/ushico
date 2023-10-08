@@ -13,7 +13,7 @@ dependencies:
     version: 3.2.0(react-hook-form@7.45.4)
   '@next-auth/upstash-redis-adapter':
     specifier: ^3.0.4
-    version: 3.0.4(@upstash/redis@1.22.0)(next-auth@4.22.4)
+    version: 3.0.4(@upstash/redis@1.22.0)(next-auth@4.23.2)
   '@tailwindcss/forms':
     specifier: ^0.5.4
     version: 0.5.4(tailwindcss@3.3.3)
@@ -63,8 +63,8 @@ dependencies:
     specifier: 13.4.12
     version: 13.4.12(react-dom@18.2.0)(react@18.2.0)
   next-auth:
-    specifier: ^4.22.4
-    version: 4.22.4(next@13.4.12)(react-dom@18.2.0)(react@18.2.0)
+    specifier: ^4.23.2
+    version: 4.23.2(next@13.4.12)(react-dom@18.2.0)(react@18.2.0)
   postcss:
     specifier: 8.4.27
     version: 8.4.27
@@ -235,14 +235,14 @@ packages:
       '@jridgewell/sourcemap-codec': 1.4.14
     dev: false
 
-  /@next-auth/upstash-redis-adapter@3.0.4(@upstash/redis@1.22.0)(next-auth@4.22.4):
+  /@next-auth/upstash-redis-adapter@3.0.4(@upstash/redis@1.22.0)(next-auth@4.23.2):
     resolution: {integrity: sha512-az9hFemtnSry7YAaVvxPEwGZSbnK8xiRLX/C5bDsM1ibQWSx6aIp7QY3Kk4NSdqU6LONkXnjndKKhrUnwEmfFw==}
     peerDependencies:
       '@upstash/redis': ^1.0.1
       next-auth: ^4
     dependencies:
       '@upstash/redis': 1.22.0(encoding@0.1.13)
-      next-auth: 4.22.4(next@13.4.12)(react-dom@18.2.0)(react@18.2.0)
+      next-auth: 4.23.2(next@13.4.12)(react-dom@18.2.0)(react@18.2.0)
       uuid: 8.3.2
     dev: false
 
@@ -2118,8 +2118,8 @@ packages:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
     dev: false
 
-  /next-auth@4.22.4(next@13.4.12)(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-VMI6pq3z4BfvFeCZHBkYtRYa0qqGTYAi2yy3hWCB78KkN1YsSAsOLSssd4oGrQBj0z/0zg2VLzn9tSJ14AtmWw==}
+  /next-auth@4.23.2(next@13.4.12)(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-VRmInu0r/yZNFQheDFeOKtiugu3bt90Po3owAQDnFQ3YLQFmUKgFjcE2+3L0ny5jsJpBXaKbm7j7W2QTc6Ye2A==}
     peerDependencies:
       next: ^12.2.5 || ^13
       nodemailer: ^6.6.5
