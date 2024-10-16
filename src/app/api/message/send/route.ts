@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       throw new Response("Unauthorized", { status: 401 });
 
     const sender = JSON.parse(
-      await fetchRedis("get", `unstorage:user:${user.id}`)
+      (await fetchRedis("get", `unstorage:user:${user.id}`)) as string
     ) as User;
 
     const timestamp = Date.now();

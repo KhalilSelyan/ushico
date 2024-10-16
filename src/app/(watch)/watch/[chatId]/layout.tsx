@@ -41,7 +41,7 @@ const Layout = async ({ children, params }: LayoutProps) => {
     (await fetchRedis(
       "smembers",
       `unstorage:user:${session.user.id}:incoming_friend_requests`
-    )) as User[]
+    )) as unknown as User[]
   ).length;
 
   const friends = await getFriendsById(session.user.id);

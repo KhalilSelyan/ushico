@@ -1,13 +1,11 @@
 import { getFriendsById } from "@/helpers/getfriendsbyid";
-import { authOptions } from "@/lib/auth";
-import { getServerSession } from "next-auth";
-import { distanceFromDateInHours } from "@/lib/utils";
-import { notFound } from "next/navigation";
 import { fetchRedis } from "@/helpers/redis";
-import { hrefChatConstructor } from "@/lib/utils";
+import { authOptions } from "@/lib/auth";
+import { distanceFromDateInHours, hrefChatConstructor } from "@/lib/utils";
 import { ChevronRight } from "lucide-react";
-import Link from "next/link";
+import { getServerSession } from "next-auth";
 import Image from "next/image";
+import Link from "next/link";
 
 const page = async () => {
   const session = await getServerSession(authOptions);
@@ -18,12 +16,12 @@ const page = async () => {
 
   const friendsWithLastMessage = await Promise.allSettled(
     friends.map(async (friend) => {
-      const [lastMessage] = await fetchRedis(
+      const [lastMessage] = (await fetchRedis(
         "zrange",
         `chat:${hrefChatConstructor(session.user.id, friend.id)}:messages`,
         -1,
         -1
-      );
+      )) as string[];
       return {
         ...friend,
         lastMessage: lastMessage ? JSON.parse(lastMessage) : null,

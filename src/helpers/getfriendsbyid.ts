@@ -8,7 +8,9 @@ export async function getFriendsById(id: string) {
 
   const friends = await Promise.allSettled(
     friendIds.map(async (friendId) =>
-      JSON.parse(await fetchRedis("get", `unstorage:user:${friendId}`))
+      JSON.parse(
+        (await fetchRedis("get", `unstorage:user:${friendId}`)) as string
+      )
     )
   );
 
@@ -29,6 +31,7 @@ export async function getFriendsById(id: string) {
 }
 
 export async function getSpecificUserById(id: string) {
-  console.log("getSpecificUserById", id);
-  return JSON.parse(await fetchRedis("get", `unstorage:user:${id}`)) as User;
+  return JSON.parse(
+    (await fetchRedis("get", `unstorage:user:${id}`)) as string
+  ) as User;
 }

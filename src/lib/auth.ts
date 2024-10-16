@@ -31,6 +31,7 @@ function getGoogleCredentials() {
 }
 
 export const authOptions: NextAuthOptions = {
+  // @ts-expect-error - it works
   adapter: UnstorageAdapter(storage),
   session: {
     strategy: "jwt",
@@ -57,7 +58,7 @@ export const authOptions: NextAuthOptions = {
           `unstorage:user:${token.id}`
         );
         if (dbUserResult) {
-          const dbUser = JSON.parse(dbUserResult) as User;
+          const dbUser = JSON.parse(dbUserResult as string) as User;
           token = {
             ...token,
             id: dbUser.id,

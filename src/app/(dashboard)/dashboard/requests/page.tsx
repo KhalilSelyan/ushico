@@ -2,7 +2,6 @@ import FriendRequests from "@/components/FriendRequests";
 import { fetchRedis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { notFound } from "next/navigation";
 
 interface PageProps {}
 
@@ -17,7 +16,10 @@ const Page = async ({}: PageProps) => {
 
   const incomingRequests = await Promise.allSettled(
     incomingSenderIds.map(async (senderId) => {
-      const user = await fetchRedis("get", `unstorage:user:${senderId}`);
+      const user = (await fetchRedis(
+        "get",
+        `unstorage:user:${senderId}`
+      )) as string;
       const parsedUser = JSON.parse(user);
       return {
         senderId,
