@@ -8,16 +8,16 @@ interface PageProps {}
 
 const Page = async ({}: PageProps) => {
   const session = await getServerSession(authOptions);
-  if (!session) return notFound();
+  if (!session) return null;
 
   const incomingSenderIds = (await fetchRedis(
     "smembers",
-    `user:${session.user.id}:incoming_friend_requests`
+    `unstorage:user:${session.user.id}:incoming_friend_requests`
   )) as string[];
 
   const incomingRequests = await Promise.allSettled(
     incomingSenderIds.map(async (senderId) => {
-      const user = await fetchRedis("get", `user:${senderId}`);
+      const user = await fetchRedis("get", `unstorage:user:${senderId}`);
       const parsedUser = JSON.parse(user);
       return {
         senderId,

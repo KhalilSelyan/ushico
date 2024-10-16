@@ -18,8 +18,8 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
   const [activeChats, setActiveChats] = useState<User[]>(chats);
 
   useEffect(() => {
-    pusherClient.subscribe(toPusherKey(`user:${userId}:chats`));
-    pusherClient.subscribe(toPusherKey(`user:${userId}:friends`));
+    pusherClient.subscribe(toPusherKey(`unstorage:user:${userId}:chats`));
+    pusherClient.subscribe(toPusherKey(`unstorage:user:${userId}:friends`));
 
     const chatHandler = (
       data: Message & {
@@ -93,8 +93,8 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
     pusherClient.bind("new_friend", friendHandler);
 
     return () => {
-      pusherClient.unsubscribe(toPusherKey(`user:${userId}:chats`));
-      pusherClient.unsubscribe(toPusherKey(`user:${userId}:friends`));
+      pusherClient.unsubscribe(toPusherKey(`unstorage:user:${userId}:chats`));
+      pusherClient.unsubscribe(toPusherKey(`unstorage:user:${userId}:friends`));
 
       pusherClient.unbind("new_message", chatHandler);
       pusherClient.unbind("new_friend", friendHandler);

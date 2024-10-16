@@ -1,5 +1,16 @@
-const upstashRedisRestUrl = process.env.UPSTASH_REDIS_REST_URL;
-const upstashRedisRestToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+import Redis from "ioredis";
+
+const globalForRedis = global as unknown as { redis: Redis };
+
+export const redis =
+  globalForRedis.redis ||
+  new Redis({
+    host: process.env.REDIS_HOST,
+    port: parseInt(process.env.REDIS_PORT || "6379"),
+    password: process.env.REDIS_PASSWORD,
+  });
+
+if (process.env.NODE_ENV !== "production") globalForRedis.redis = redis;
 
 type Command = "zrange" | "sismember" | "get" | "smembers";
 
@@ -7,19 +18,12 @@ export async function fetchRedis(
   command: Command,
   ...args: (string | number)[]
 ) {
-  const commandUrl = `${upstashRedisRestUrl}/${command}/${args.join("/")}`;
-  const response = await fetch(commandUrl, {
-    headers: {
-      Authorization: `Bearer ${upstashRedisRestToken}`,
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Error executing redis command: ${response.statusText}`);
+  try {
+    // @ts-ignore
+    const commandResult = await redis[command](...args);
+    return commandResult;
+  } catch (error) {
+    console.error(`Error executing Redis command: ${error}`);
+    throw error;
   }
-
-  const data = await response.json();
-
-  return data.result;
 }

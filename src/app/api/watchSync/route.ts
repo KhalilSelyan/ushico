@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
   const friendList = (await fetchRedis(
     "smembers",
-    `user:${user.id}:friends`
+    `unstorage:user:${user.id}:friends`
   )) as string[];
   if (!friendList.includes(receiverId))
     throw new Response("Unauthorized", { status: 401 });

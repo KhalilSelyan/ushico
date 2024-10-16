@@ -1,11 +1,10 @@
-import { fetchRedis } from "@/helpers/redis";
+import { fetchRedis, redis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { Message, messageValidator } from "@/lib/validators/messages";
-import { getServerSession } from "next-auth";
-import { nanoid } from "nanoid";
 import { pusherServer } from "@/lib/pusher";
 import { toPusherKey } from "@/lib/utils";
+import { Message, messageValidator } from "@/lib/validators/messages";
+import { nanoid } from "nanoid";
+import { getServerSession } from "next-auth";
 
 export async function POST(req: Request) {
   try {
@@ -29,13 +28,13 @@ export async function POST(req: Request) {
 
     const friendList = (await fetchRedis(
       "smembers",
-      `user:${user.id}:friends`
+      `unstorage:user:${user.id}:friends`
     )) as string[];
     if (!friendList.includes(receiverId))
       throw new Response("Unauthorized", { status: 401 });
 
     const sender = JSON.parse(
-      await fetchRedis("get", `user:${user.id}`)
+      await fetchRedis("get", `unstorage:user:${user.id}`)
     ) as User;
 
     const timestamp = Date.now();
@@ -49,10 +48,11 @@ export async function POST(req: Request) {
 
     const message = messageValidator.parse(messageData);
 
-    await db.zadd(`chat:${chatId}:messages`, {
-      score: timestamp,
-      member: JSON.stringify(message),
-    });
+    await redis.zadd(
+      `chat:${chatId}:messages`,
+      timestamp,
+      JSON.stringify(message)
+    );
 
     pusherServer.trigger(
       toPusherKey(`chat:${chatId}:messages`),
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     );
 
     pusherServer.trigger(
-      toPusherKey(`user:${receiverId}:chats`),
+      toPusherKey(`unstorage:user:${receiverId}:chats`),
       "new_message",
       {
         ...message,

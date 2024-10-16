@@ -44,7 +44,7 @@ const FriendRequests: FC<FriendRequestsProps> = ({
 
   useEffect(() => {
     pusherClient.subscribe(
-      toPusherKey(`user:${sessionId}:incoming_friend_requests`)
+      toPusherKey(`unstorage:user:${sessionId}:incoming_friend_requests`)
     );
 
     const friendRequestHandler = (data: IncomingFriendRequest) => {
@@ -55,7 +55,7 @@ const FriendRequests: FC<FriendRequestsProps> = ({
 
     return () => {
       pusherClient.unsubscribe(
-        toPusherKey(`user:${sessionId}:incoming_friend_requests`)
+        toPusherKey(`unstorage:user:${sessionId}:incoming_friend_requests`)
       );
       pusherClient.unbind("incoming_friend_request", friendRequestHandler);
     };

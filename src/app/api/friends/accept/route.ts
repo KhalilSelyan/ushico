@@ -1,6 +1,5 @@
-import { fetchRedis } from "@/helpers/redis";
+import { fetchRedis, redis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
 import { pusherServer } from "@/lib/pusher";
 import { toPusherKey } from "@/lib/utils";
 import { AxiosError } from "axios";
@@ -26,7 +25,7 @@ export async function POST(req: Request) {
     // check if already friends
     const alreadyFriends = await fetchRedis(
       "sismember",
-      `user:${session.user.id}:friends`,
+      `unstorage:user:${session.user.id}:friends`,
       idToAccept
     );
     if (alreadyFriends) {
@@ -38,7 +37,7 @@ export async function POST(req: Request) {
     // check if already received request
     const alreadyReceived = await fetchRedis(
       "sismember",
-      `user:${session.user.id}:incoming_friend_requests`,
+      `unstorage:user:${session.user.id}:incoming_friend_requests`,
       idToAccept
     );
     if (!alreadyReceived) {
@@ -48,26 +47,29 @@ export async function POST(req: Request) {
     }
 
     const [userRaw, friendRaw] = (await Promise.all([
-      fetchRedis("get", `user:${session.user.id}`),
-      fetchRedis("get", `user:${idToAccept}`),
+      fetchRedis("get", `unstorage:user:${session.user.id}`),
+      fetchRedis("get", `unstorage:user:${idToAccept}`),
     ])) as [string, string];
 
     const [user, friend] = [userRaw, friendRaw].map((x) => JSON.parse(x));
 
     await Promise.all([
       pusherServer.trigger(
-        toPusherKey(`user:${idToAccept}:friends`),
+        toPusherKey(`unstorage:user:${idToAccept}:friends`),
         "new_friend",
         user
       ),
       pusherServer.trigger(
-        toPusherKey(`user:${session.user.id}:friends`),
+        toPusherKey(`unstorage:user:${session.user.id}:friends`),
         "new_friend",
         friend
       ),
-      db.sadd(`user:${session.user.id}:friends`, idToAccept),
-      db.sadd(`user:${idToAccept}:friends`, session.user.id),
-      db.srem(`user:${session.user.id}:incoming_friend_requests`, idToAccept),
+      redis.sadd(`unstorage:user:${session.user.id}:friends`, idToAccept),
+      redis.sadd(`unstorage:user:${idToAccept}:friends`, session.user.id),
+      redis.srem(
+        `unstorage:user:${session.user.id}:incoming_friend_requests`,
+        idToAccept
+      ),
     ]);
 
     return new Response("OK", {

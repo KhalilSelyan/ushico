@@ -1,6 +1,5 @@
-import { fetchRedis } from "@/helpers/redis";
+import { fetchRedis, redis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
 import { pusherServer } from "@/lib/pusher";
 import { toPusherKey } from "@/lib/utils";
 import { addFriendValidator } from "@/lib/validators/add-friend";
@@ -15,7 +14,7 @@ export async function POST(req: Request) {
 
     const idToAdd = (await fetchRedis(
       "get",
-      `user:email:${emailToAdd}`
+      `unstorage:user:email:${emailToAdd}`
     )) as string;
 
     if (!idToAdd) {
@@ -35,7 +34,7 @@ export async function POST(req: Request) {
     // if already added
     const isAlreadyAdded = (await fetchRedis(
       "sismember",
-      `user:${idToAdd}:incoming_friend_requests`,
+      `unstorage:user:${idToAdd}:incoming_friend_requests`,
       session.user.id
     )) as 0 | 1;
     if (isAlreadyAdded) {
@@ -45,7 +44,7 @@ export async function POST(req: Request) {
     // if already friends
     const isAlreadyFriend = (await fetchRedis(
       "sismember",
-      `user:${session.user.id}:friends`,
+      `unstorage:user:${session.user.id}:friends`,
       idToAdd
     )) as 0 | 1;
     if (isAlreadyFriend) {
@@ -53,10 +52,13 @@ export async function POST(req: Request) {
     }
 
     // valid request
-    await db.sadd(`user:${idToAdd}:incoming_friend_requests`, session.user.id);
+    await redis.sadd(
+      `unstorage:user:${idToAdd}:incoming_friend_requests`,
+      session.user.id
+    );
 
     await pusherServer.trigger(
-      toPusherKey(`user:${idToAdd}:incoming_friend_requests`),
+      toPusherKey(`unstorage:user:${idToAdd}:incoming_friend_requests`),
       "incoming_friend_requests",
       {
         senderId: session.user.id,

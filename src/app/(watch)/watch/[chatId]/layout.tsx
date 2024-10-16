@@ -36,11 +36,11 @@ const sidebarOptions: SidebarOption[] = [
 const Layout = async ({ children, params }: LayoutProps) => {
   const { chatId } = params;
   const session = await getServerSession(authOptions);
-  if (!session) return notFound();
+  if (!session) return null;
   const unseenRequestCount = (
     (await fetchRedis(
       "smembers",
-      `user:${session.user.id}:incoming_friend_requests`
+      `unstorage:user:${session.user.id}:incoming_friend_requests`
     )) as User[]
   ).length;
 

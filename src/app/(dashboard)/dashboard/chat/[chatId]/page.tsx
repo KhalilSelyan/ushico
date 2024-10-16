@@ -29,24 +29,24 @@ export async function getChatMessages(chatId: string) {
 
     return messages;
   } catch (error) {
-    notFound();
+    null;
   }
 }
 
 const Page = async ({ params }: PageProps) => {
   const { chatId } = params;
   const session = await getServerSession(authOptions);
-  if (!session) return notFound();
+  if (!session) return null;
   const { user } = session;
 
   const [userId1, userId2] = chatId.split("--");
 
-  if (userId1 !== user.id && userId2 !== user.id) return notFound();
+  if (userId1 !== user.id && userId2 !== user.id) return null;
 
   const chatPartnerId = userId1 === user.id ? userId2 : userId1;
 
   const chatPartner = JSON.parse(
-    await fetchRedis("get", `user:${chatPartnerId}`)
+    await fetchRedis("get", `unstorage:user:${chatPartnerId}`)
   ) as User;
 
   const initialMessages = await getChatMessages(chatId);
