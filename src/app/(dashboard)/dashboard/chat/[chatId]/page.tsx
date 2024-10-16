@@ -7,7 +7,6 @@ import { MonitorPlay, User2Icon } from "lucide-react";
 import { getServerSession } from "next-auth";
 import Image from "next/image";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 
 interface PageProps {
   params: {
@@ -29,7 +28,14 @@ export async function getChatMessages(chatId: string) {
 
     return messages;
   } catch (error) {
-    null;
+    return [
+      {
+        id: "0",
+        senderId: "0",
+        text: "0",
+        timestamp: 0,
+      },
+    ];
   }
 }
 
