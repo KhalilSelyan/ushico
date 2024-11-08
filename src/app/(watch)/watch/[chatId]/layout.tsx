@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import { getChatMessages } from "@/app/(dashboard)/dashboard/chat/[chatId]/page";
 import ChatInput from "@/components/ChatInput";
 import { Icon, Icons } from "@/components/Icons";
@@ -8,9 +9,7 @@ import { getFriendsById } from "@/helpers/getfriendsbyid";
 import { fetchRedis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import Image from "next/image";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -89,8 +88,7 @@ const Layout = async ({ children, params }: LayoutProps) => {
               <div className="flex flex-row items-center">
                 <div className="flex flex-1 items-center gap-x-4 px-6 py-3 text-sm font-semibold leading-6 text-gray-900">
                   <div className="relative h-8 w-8 bg-gray-50">
-                    <Image
-                      fill
+                    <img
                       referrerPolicy="no-referrer"
                       className="rounded-full"
                       src={session.user.image || ""}
@@ -111,9 +109,7 @@ const Layout = async ({ children, params }: LayoutProps) => {
           </ul>
         </nav>
       </div>
-      <aside className="max-h-[100dvh] pt-16 md:pt-12 container w-full">
-        {children}
-      </aside>
+      <aside className="max-h-[100dvh] pt-16 md:pt-0 w-full">{children}</aside>
     </div>
   );
 };

@@ -1,8 +1,8 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { Transition, Dialog } from "@headlessui/react";
 import { Menu, X } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { FC, Fragment, useEffect, useState } from "react";
 import { Icons } from "./Icons";
@@ -103,8 +103,7 @@ const MobileChatWatchLayout: FC<MobileChatWatchLayoutProps> = ({
                               <div className="flex flex-row items-center">
                                 <div className="flex flex-1 items-center gap-x-4 px-6 py-3 text-sm font-semibold leading-6 text-gray-900">
                                   <div className="relative h-8 w-8 bg-gray-50">
-                                    <Image
-                                      fill
+                                    <img
                                       referrerPolicy="no-referrer"
                                       className="rounded-full"
                                       src={user.image || ""}

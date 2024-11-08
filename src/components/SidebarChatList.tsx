@@ -1,7 +1,7 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 import { pusherClient } from "@/lib/pusher";
 import { hrefChatConstructor, toPusherKey } from "@/lib/utils";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { FC, useEffect, useState } from "react";
 import toast from "react-hot-toast";
@@ -40,12 +40,7 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
           <div className="flex-1 w-0 p-4">
             <div className="flex items-start">
               <div className="relative h-10 w-10 pt-0.5">
-                <Image
-                  className="rounded-full"
-                  layout="fill"
-                  src={data.senderImg}
-                  alt=""
-                />
+                <img className="rounded-full" src={data.senderImg} alt="" />
               </div>
               <div className="ml-3 flex-1">
                 <p className="text-sm font-medium text-gray-900">

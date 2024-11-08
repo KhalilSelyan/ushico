@@ -1,10 +1,10 @@
+/* eslint-disable @next/next/no-img-element */
 import { getFriendsById } from "@/helpers/getfriendsbyid";
 import { fetchRedis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
 import { distanceFromDateInHours, hrefChatConstructor } from "@/lib/utils";
 import { ChevronRight } from "lucide-react";
 import { getServerSession } from "next-auth";
-import Image from "next/image";
 import Link from "next/link";
 
 const page = async () => {
@@ -75,11 +75,10 @@ const page = async () => {
               >
                 <div className="flex items-center w-full">
                   <div className="relative h-8 w-8 sm:w-12 sm:h-12 aspect-square">
-                    <Image
+                    <img
                       src={friend.image}
                       alt={friend.name}
                       className="rounded-full"
-                      layout="fill"
                       referrerPolicy="no-referrer"
                     />
                   </div>

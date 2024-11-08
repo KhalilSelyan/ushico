@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import ChatInput from "@/components/ChatInput";
 import Messages from "@/components/Messages";
 import { fetchRedis } from "@/helpers/redis";
@@ -5,7 +6,6 @@ import { authOptions } from "@/lib/auth";
 import { messageListValidator } from "@/lib/validators/messages";
 import { MonitorPlay, User2Icon } from "lucide-react";
 import { getServerSession } from "next-auth";
-import Image from "next/image";
 import Link from "next/link";
 
 interface PageProps {
@@ -64,9 +64,8 @@ const Page = async ({ params }: PageProps) => {
           <div className="relative">
             <div className="relative -z-10 h-8 sm:h-12 w-8 sm:w-12">
               {chatPartner.image ? (
-                <Image
+                <img
                   src={chatPartner.image}
-                  layout="fill"
                   referrerPolicy="no-referrer"
                   alt={`${chatPartner.name} picture`}
                   className="rounded-full -z-10 object-cover"
