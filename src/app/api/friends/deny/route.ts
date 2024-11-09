@@ -20,7 +20,7 @@ export async function POST(req: Request) {
       })
       .parse(body);
 
-    // check if already received request
+    // Check if already received request
     const alreadyReceived = await fetchRedis(
       "sismember",
       `unstorage:user:${session.user.id}:incoming_friend_requests`,
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // remove friend request
+    // Remove friend request
     await redis.srem(
       `unstorage:user:${session.user.id}:incoming_friend_requests`,
       idToDeny

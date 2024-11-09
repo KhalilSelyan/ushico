@@ -13,7 +13,8 @@ interface Chat {
 interface Message {
   id: string;
   senderId: string;
-
+  senderImage?: string;
+  senderName?: string;
   text: string;
   timestamp: number;
 }

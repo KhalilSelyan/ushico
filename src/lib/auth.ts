@@ -10,6 +10,7 @@ const storage = createStorage({
   driver: redisDriver({
     base: "unstorage",
     host: process.env.REDIS_HOST,
+    username: "default",
     port: parseInt(process.env.REDIS_PORT || "6379"),
     password: process.env.REDIS_PASSWORD,
     tls: false as any,

@@ -6,13 +6,17 @@ import { AddFriend, addFriendValidator } from "@/lib/validators/add-friend";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useSession } from "next-auth/react";
+import { wsService } from "@/lib/websocket";
 
 interface AddFriendButtonProps {}
 
 type FormData = AddFriend;
 
 const AddFriendButton: FC<AddFriendButtonProps> = ({}) => {
+  const { data: session } = useSession();
   const [showSuccessState, setShowSuccessState] = useState(false);
+
   const {
     register,
     formState: { errors },
@@ -21,14 +25,34 @@ const AddFriendButton: FC<AddFriendButtonProps> = ({}) => {
   } = useForm<FormData>({
     resolver: zodResolver(addFriendValidator),
   });
+
   const addFriend = async (email: string) => {
     try {
       const validatedEmail = addFriendValidator.parse({
         email,
       });
-      await axios.post("/api/friends/add", {
+
+      const response = await axios.post("/api/friends/add", {
         email: validatedEmail,
       });
+
+      const { idToAdd } = response.data;
+
+      if (session) {
+        // Send WebSocket message to the recipient's channel
+        wsService.send(
+          `user:${idToAdd}:incoming_friend_requests`,
+          "incoming_friend_request",
+          {
+            senderId: session.user.id,
+            senderEmail: session.user.email,
+            senderName: session.user.name,
+            senderImage: session.user.image,
+          }
+        );
+      } else {
+        console.error("User is not authenticated");
+      }
 
       setShowSuccessState(true);
     } catch (err) {
@@ -76,8 +100,8 @@ const AddFriendButton: FC<AddFriendButtonProps> = ({}) => {
         {errors.email?.message}
       </p>
       {showSuccessState && (
-        <p className="mt-1 text-sm text-green-600" id="email-error">
-          Friend added successfully
+        <p className="mt-1 text-sm text-green-600" id="email-success">
+          Friend request sent successfully
         </p>
       )}
     </form>

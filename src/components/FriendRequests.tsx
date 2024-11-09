@@ -1,65 +1,99 @@
 "use client";
-import { pusherClient } from "@/lib/pusher";
-import { toPusherKey } from "@/lib/utils";
+import { wsService } from "@/lib/websocket";
 import axios from "axios";
 import { Check, UserPlus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FC, useEffect, useState } from "react";
+import { Session } from "next-auth";
 
 interface FriendRequestsProps {
   initialFriendRequests: IncomingFriendRequest[];
-  sessionId: string;
+  session: Session;
 }
 
 const FriendRequests: FC<FriendRequestsProps> = ({
   initialFriendRequests,
-  sessionId,
+  session,
 }) => {
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<
     IncomingFriendRequest[]
   >(initialFriendRequests);
   const router = useRouter();
+
   const acceptFriendRequest = async (senderId: string) => {
-    await axios.post("/api/friends/accept", {
-      id: senderId,
-    });
+    try {
+      await axios.post("/api/friends/accept", {
+        id: senderId,
+      });
 
-    setIncomingFriendRequests((prev) =>
-      prev.filter((request) => request.senderId !== senderId)
-    );
+      setIncomingFriendRequests((prev) =>
+        prev.filter((request) => request.senderId !== senderId)
+      );
 
-    router.refresh();
+      // Send WebSocket message to notify the sender
+      if (session) {
+        wsService.send(`user:${senderId}:friends`, "friend_request_accepted", {
+          userId: session.user.id,
+          userName: session.user.name,
+          userEmail: session.user.email,
+          userImage: session.user.image,
+        });
+      } else {
+        console.error("User session not found.");
+      }
+
+      router.refresh();
+    } catch (error) {
+      console.error("Error accepting friend request:", error);
+    }
   };
+
   const denyFriendRequest = async (senderId: string) => {
-    await axios.post("/api/friends/deny", {
-      id: senderId,
-    });
+    try {
+      await axios.post("/api/friends/deny", {
+        id: senderId,
+      });
 
-    setIncomingFriendRequests((prev) =>
-      prev.filter((request) => request.senderId !== senderId)
-    );
+      setIncomingFriendRequests((prev) =>
+        prev.filter((request) => request.senderId !== senderId)
+      );
 
-    router.refresh();
+      // Optionally, send a WebSocket message to notify the sender
+      if (session) {
+        wsService.send(`user:${senderId}:friends`, "friend_request_denied", {
+          userId: session.user.id,
+        });
+      } else {
+        console.error("User session not found.");
+      }
+
+      router.refresh();
+    } catch (error) {
+      console.error("Error denying friend request:", error);
+    }
   };
 
   useEffect(() => {
-    pusherClient.subscribe(
-      toPusherKey(`unstorage:user:${sessionId}:incoming_friend_requests`)
+    const incomingFriendRequestsChannel = `user:${session?.user.id}:incoming_friend_requests`;
+
+    console.log("Subscribing to channel:", incomingFriendRequestsChannel);
+
+    const unsubscribeFriendRequests = wsService.subscribe(
+      incomingFriendRequestsChannel,
+      (message: any) => {
+        console.log("Received WebSocket message:", message);
+        if (message.event === "incoming_friend_request") {
+          const data = message.data as IncomingFriendRequest;
+          setIncomingFriendRequests((prev) => [...prev, data]);
+        }
+      }
     );
 
-    const friendRequestHandler = (data: IncomingFriendRequest) => {
-      setIncomingFriendRequests((prev) => [...prev, data]);
-    };
-
-    pusherClient.bind("incoming_friend_request", friendRequestHandler);
-
     return () => {
-      pusherClient.unsubscribe(
-        toPusherKey(`unstorage:user:${sessionId}:incoming_friend_requests`)
-      );
-      pusherClient.unbind("incoming_friend_request", friendRequestHandler);
+      console.log("Unsubscribing from channel:", incomingFriendRequestsChannel);
+      unsubscribeFriendRequests();
     };
-  }, [sessionId]);
+  }, [session]);
 
   return (
     <>

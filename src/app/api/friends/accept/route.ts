@@ -1,7 +1,5 @@
 import { fetchRedis, redis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
-import { pusherServer } from "@/lib/pusher";
-import { toPusherKey } from "@/lib/utils";
 import { AxiosError } from "axios";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -22,7 +20,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // check if already friends
+    // Check if already friends
     const alreadyFriends = await fetchRedis(
       "sismember",
       `unstorage:user:${session.user.id}:friends`,
@@ -34,7 +32,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // check if already received request
+    // Check if already received request
     const alreadyReceived = await fetchRedis(
       "sismember",
       `unstorage:user:${session.user.id}:incoming_friend_requests`,
@@ -46,24 +44,8 @@ export async function POST(req: Request) {
       });
     }
 
-    const [userRaw, friendRaw] = (await Promise.all([
-      fetchRedis("get", `unstorage:user:${session.user.id}`),
-      fetchRedis("get", `unstorage:user:${idToAccept}`),
-    ])) as [string, string];
-
-    const [user, friend] = [userRaw, friendRaw].map((x) => JSON.parse(x));
-
+    // Update Redis
     await Promise.all([
-      pusherServer.trigger(
-        toPusherKey(`unstorage:user:${idToAccept}:friends`),
-        "new_friend",
-        user
-      ),
-      pusherServer.trigger(
-        toPusherKey(`unstorage:user:${session.user.id}:friends`),
-        "new_friend",
-        friend
-      ),
       redis.sadd(`unstorage:user:${session.user.id}:friends`, idToAccept),
       redis.sadd(`unstorage:user:${idToAccept}:friends`, session.user.id),
       redis.srem(

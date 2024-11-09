@@ -5,9 +5,10 @@ const globalForRedis = global as unknown as { redis: Redis };
 export const redis =
   globalForRedis.redis ||
   new Redis({
-    host: process.env.REDIS_HOST,
+    username: "default",
     port: parseInt(process.env.REDIS_PORT || "6379"),
     password: process.env.REDIS_PASSWORD,
+    host: process.env.REDIS_HOST,
   });
 
 if (process.env.NODE_ENV !== "production") globalForRedis.redis = redis;

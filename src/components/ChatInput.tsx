@@ -5,6 +5,7 @@ import TextareaAutosize from "react-textarea-autosize";
 import Button from "./ui/Button";
 import axios from "axios";
 import toast from "react-hot-toast";
+import { wsService } from "@/lib/websocket";
 
 interface ChatInputProps {
   chatId: string;
@@ -21,14 +22,35 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
     setIsLoading(true);
 
     try {
-      await axios.post("/api/message/send", {
+      const response = await axios.post("/api/message/send", {
         chatId,
         text: input,
       });
+
+      if (response.status !== 200) {
+        console.error("API response error:", response.data.error);
+        return;
+      }
+      const messageData = response.data.messageData;
+
+      // Send the message via WebSocket to chat channel
+      wsService.send(
+        `chat:${chatId}:messages`,
+        "incoming_message",
+        messageData
+      );
+
+      // Optionally, send notification to the receiver's channel
+      wsService.send(`user:${chatPartner.id}:chats`, "new_message", {
+        ...messageData,
+        senderImg: user.image,
+        senderName: user.name,
+      });
+
       setInput("");
       textareaRef.current?.focus();
     } catch (error) {
-      console.log(error);
+      console.error("Error sending message:", error);
       toast.error("Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);

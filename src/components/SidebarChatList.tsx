@@ -1,9 +1,9 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
-import { pusherClient } from "@/lib/pusher";
-import { hrefChatConstructor, toPusherKey } from "@/lib/utils";
+import { hrefChatConstructor } from "@/lib/utils";
+import { wsService } from "@/lib/websocket";
 import { usePathname, useRouter } from "next/navigation";
-import { FC, useEffect, useState } from "react";
+import { FC, useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 interface SidebarChatListProps {
@@ -17,20 +17,14 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
   const [unseenMessages, setUnseenMessages] = useState<Message[]>([]);
   const [activeChats, setActiveChats] = useState<User[]>(chats);
 
-  useEffect(() => {
-    pusherClient.subscribe(toPusherKey(`unstorage:user:${userId}:chats`));
-    pusherClient.subscribe(toPusherKey(`unstorage:user:${userId}:friends`));
-
-    const chatHandler = (
-      data: Message & {
-        senderImg: string;
-        senderName: string;
-      }
-    ) => {
+  const chatHandler = useCallback(
+    (message: any) => {
+      const data = message as Message;
       const shouldNotify =
         pathname !==
         `/dashboard/chat/${hrefChatConstructor(userId, data.senderId)}`;
       if (!shouldNotify) return;
+      // Show toast and update unseen messages
       toast.custom((t) => (
         <div
           className={`${
@@ -40,7 +34,7 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
           <div className="flex-1 w-0 p-4">
             <div className="flex items-start">
               <div className="relative h-10 w-10 pt-0.5">
-                <img className="rounded-full" src={data.senderImg} alt="" />
+                <img className="rounded-full" src={data.senderImage} alt="" />
               </div>
               <div className="ml-3 flex-1">
                 <p className="text-sm font-medium text-gray-900">
@@ -78,23 +72,46 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
           </div>
         </div>
       ));
-      setUnseenMessages((prev) => [...prev, data]);
-    };
-    const friendHandler = (newFriend: User) => {
-      setActiveChats((prev) => [...prev, newFriend]);
-    };
 
-    pusherClient.bind("new_message", chatHandler);
-    pusherClient.bind("new_friend", friendHandler);
+      setUnseenMessages((prev) => [...prev, data]);
+    },
+    [pathname, router, userId]
+  );
+
+  const friendHandler = useCallback((message: any) => {
+    console.log("Received WebSocket message:", message);
+    if (message.event === "new_friend") {
+      const newFriend = message.data as User;
+      setActiveChats((prev) => [...prev, newFriend]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const userChatsChannel = `user:${userId}:chats`;
+    const userFriendsChannel = `user:${userId}:friends`;
+
+    console.log(
+      "Subscribing to channels:",
+      userChatsChannel,
+      userFriendsChannel
+    );
+
+    const unsubscribeChats = wsService.subscribe(userChatsChannel, chatHandler);
+    const unsubscribeFriends = wsService.subscribe(
+      userFriendsChannel,
+      friendHandler
+    );
 
     return () => {
-      pusherClient.unsubscribe(toPusherKey(`unstorage:user:${userId}:chats`));
-      pusherClient.unsubscribe(toPusherKey(`unstorage:user:${userId}:friends`));
-
-      pusherClient.unbind("new_message", chatHandler);
-      pusherClient.unbind("new_friend", friendHandler);
+      console.log(
+        "Unsubscribing from channels:",
+        userChatsChannel,
+        userFriendsChannel
+      );
+      unsubscribeChats();
+      unsubscribeFriends();
     };
-  }, [pathname, router, userId]);
+  }, [chatHandler, friendHandler, pathname, router, userId]);
 
   useEffect(() => {
     if (pathname?.includes("chat")) {

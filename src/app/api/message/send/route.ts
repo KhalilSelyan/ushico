@@ -1,11 +1,10 @@
 import { fetchRedis, redis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
-import { pusherServer } from "@/lib/pusher";
-import { toPusherKey } from "@/lib/utils";
 import { Message, messageValidator } from "@/lib/validators/messages";
 import { nanoid } from "nanoid";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
+import { wsService } from "@/lib/websocket";
 
 // Define request schema
 const messageRequestSchema = z.object({
@@ -118,6 +117,8 @@ export async function POST(req: Request) {
       id: nanoid(),
       senderId: user.id,
       text,
+      senderImage: user.image ?? "",
+      senderName: user.name ?? "",
       timestamp,
     };
 
@@ -138,6 +139,7 @@ export async function POST(req: Request) {
         timestamp,
         JSON.stringify(messageData)
       );
+      console.log("Message stored in Redis:", messageData);
     } catch (error) {
       console.error("Redis message storage error:", error);
       return new Response(
@@ -146,42 +148,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // 9. Send Pusher notifications
-    try {
-      await Promise.all([
-        pusherServer.trigger(
-          toPusherKey(`chat:${chatId}:messages`),
-          "incoming_message",
-          messageData
-        ),
-        pusherServer.trigger(
-          toPusherKey(`unstorage:user:${receiverId}:chats`),
-          "new_message",
-          {
-            ...messageData,
-            senderImg: sender.image,
-            senderName: sender.name,
-          }
-        ),
-      ]);
-    } catch (error) {
-      console.error("Pusher notification error:", error);
-      // Note: Message is stored but notification failed
-      return new Response(
-        JSON.stringify({
-          warning: "Message stored but notification delivery failed",
-          messageId: messageData.id,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // 10. Success response
     return new Response(
       JSON.stringify({
         success: true,
         message: "Message sent successfully",
-        messageId: messageData.id,
+        messageData, // Include the message data in response
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
@@ -190,12 +161,13 @@ export async function POST(req: Request) {
     console.error("Unexpected error:", error);
     return new Response(
       JSON.stringify({
-        error: "Internal server error",
-        message:
-          // @ts-expect-error - error type
-          process.env.NODE_ENV === "development" ? error.message : undefined,
+        error: "Failed to send message",
+        details: error instanceof Error ? error.message : "Unknown error",
       }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 }

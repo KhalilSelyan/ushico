@@ -1,7 +1,6 @@
 "use client";
 
-import { pusherClient } from "@/lib/pusher";
-import { toPusherKey } from "@/lib/utils";
+import { wsService } from "@/lib/websocket";
 import { User } from "lucide-react";
 import Link from "next/link";
 import { FC, useEffect, useState } from "react";
@@ -12,41 +11,67 @@ interface FriendsRequestSidebarOptionProps {
 }
 
 const FriendsRequestSidebarOption: FC<FriendsRequestSidebarOptionProps> = ({
-  sessionId,
   initialUnseenRequestCount,
+  sessionId,
 }) => {
   const [unseenRequestCount, setUnseenRequestCount] = useState<number>(
     initialUnseenRequestCount
   );
 
   useEffect(() => {
-    pusherClient.subscribe(
-      toPusherKey(`unstorage:user:${sessionId}:incoming_friend_requests`)
+    const incomingFriendRequestsChannel = `user:${sessionId}:incoming_friend_requests`;
+    const friendRequestDeniedChannel = `user:${sessionId}:friend_request_denied`;
+    const friendRequestAcceptedChannel = `user:${sessionId}:friend_request_accepted`;
+    const friendsChannel = `user:${sessionId}:friends`;
+
+    console.log(
+      "Subscribing to channels:",
+      incomingFriendRequestsChannel,
+      friendsChannel
     );
 
-    pusherClient.subscribe(toPusherKey(`unstorage:user:${sessionId}:friends`));
+    const unsubscribeFriendRequests = wsService.subscribe(
+      incomingFriendRequestsChannel,
+      (message: any) => {
+        console.log("Received WebSocket message:", message);
+        setUnseenRequestCount((prev) => prev + 1);
+      }
+    );
 
-    const friendRequestHandler = () => {
-      setUnseenRequestCount((prev) => prev + 1);
-    };
-    const newFriendHandler = () => {
-      setUnseenRequestCount((prev) => prev - 1);
-    };
-
-    pusherClient.bind("incoming_friend_request", friendRequestHandler);
-    pusherClient.bind("new_friend", newFriendHandler);
+    const unsubscribeFriends = wsService.subscribe(
+      friendsChannel,
+      (message: any) => {
+        console.log("Received WebSocket message:", message);
+        setUnseenRequestCount((prev) => prev - 1);
+      }
+    );
+    const unsubscribeFriendsDenied = wsService.subscribe(
+      friendRequestDeniedChannel,
+      (message: any) => {
+        console.log("Received WebSocket message:", message);
+        setUnseenRequestCount((prev) => prev - 1);
+      }
+    );
+    const unsubscribeFriendsAccepted = wsService.subscribe(
+      friendRequestAcceptedChannel,
+      (message: any) => {
+        console.log("Received WebSocket message:", message);
+        setUnseenRequestCount((prev) => prev - 1);
+      }
+    );
 
     return () => {
-      pusherClient.unsubscribe(
-        toPusherKey(`unstorage:user:${sessionId}:incoming_friend_requests`)
+      console.log(
+        "Unsubscribing from channels:",
+        incomingFriendRequestsChannel,
+        friendsChannel
       );
-      pusherClient.unsubscribe(
-        toPusherKey(`unstorage:user:${sessionId}:friends`)
-      );
-      pusherClient.unbind("incoming_friend_request", friendRequestHandler);
-      pusherClient.unbind("new_friend", newFriendHandler);
+      unsubscribeFriendRequests();
+      unsubscribeFriends();
+      unsubscribeFriendsDenied();
+      unsubscribeFriendsAccepted();
     };
-  }, [sessionId]);
+  }, []);
 
   return (
     <Link

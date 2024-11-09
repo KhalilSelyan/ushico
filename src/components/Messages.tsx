@@ -1,14 +1,16 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
-import { pusherClient } from "@/lib/pusher";
-import { cn, toPusherKey } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { User } from "next-auth";
 import { FC, useEffect, useRef, useState, useCallback } from "react";
 import { format } from "date-fns";
+import { wsService } from "@/lib/websocket";
 
 interface Message {
   id: string;
   senderId: string;
+  senderImage?: string;
+  senderName?: string;
   text: string;
   timestamp: number;
 }
@@ -31,31 +33,30 @@ const Messages: FC<MessagesProps> = ({
     // Sort messages by timestamp in descending order initially
     [...initialMessages].sort((a, b) => b.timestamp - a.timestamp)
   );
-  const [error, setError] = useState<string | null>(null);
-  const [isReconnecting, setIsReconnecting] = useState(false);
 
-  // Memoized message handler
-  const messageHandler = useCallback((message: Message) => {
+  const messageHandler = useCallback((message: any) => {
+    const newMessage = message as Message;
     setMessages((prev) => {
-      // Check if message already exists to prevent duplicates
-      if (prev.some((m) => m.id === message.id)) {
+      // Check if message already exists
+      if (prev.some((m) => m.id === newMessage.id)) {
         return prev;
       }
-      // Insert new message in correct position
+
       const newMessages = [...prev];
       const insertIndex = newMessages.findIndex(
-        (m) => m.timestamp < message.timestamp
+        (m) => m.timestamp < newMessage.timestamp
       );
 
       if (insertIndex === -1) {
-        newMessages.push(message);
+        newMessages.push(newMessage);
       } else {
-        newMessages.splice(insertIndex, 0, message);
+        newMessages.splice(insertIndex, 0, newMessage);
       }
+
       return newMessages;
     });
 
-    // Scroll to bottom with a slight delay to ensure message is rendered
+    // Scroll to bottom
     setTimeout(() => {
       scrollDownRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 100);
@@ -66,71 +67,21 @@ const Messages: FC<MessagesProps> = ({
     return format(new Date(timestamp), "HH:mm");
   };
 
-  // Memoized reconnection handler
-  const handleReconnection = useCallback(() => {
-    setIsReconnecting(true);
-    // Fetch latest messages
-    fetch(`/api/messages/${chatId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setMessages((prev) => {
-          // Merge new messages with existing ones, removing duplicates
-          const combined = [...prev, ...data.messages];
-          const unique = Array.from(
-            new Map(combined.map((m) => [m.id, m])).values()
-          );
-          return unique.sort((a, b) => b.timestamp - a.timestamp);
-        });
-        setError(null);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch messages:", err);
-        setError("Failed to reconnect. Messages might be out of sync.");
-      })
-      .finally(() => {
-        setIsReconnecting(false);
-      });
-  }, [chatId]);
-
   useEffect(() => {
-    const channel = pusherClient.subscribe(
-      toPusherKey(`chat:${chatId}:messages`)
-    );
+    const channelName = `chat:${chatId}:messages`;
+    const userChannel = `user:${user.id}:chats`;
 
-    channel.bind("incoming_message", messageHandler);
-
-    // Handle connection issues
-    channel.bind("pusher:subscription_error", () => {
-      setError("Failed to subscribe to messages");
-    });
-
-    channel.bind("pusher:subscription_succeeded", () => {
-      setError(null);
-    });
+    const unsubscribe1 = wsService.subscribe(userChannel, messageHandler);
+    const unsubscribe2 = wsService.subscribe(channelName, messageHandler);
 
     return () => {
-      channel.unbind("incoming_message", messageHandler);
-      channel.unbind("pusher:subscription_error");
-      channel.unbind("pusher:subscription_succeeded");
-      pusherClient.unsubscribe(toPusherKey(`chat:${chatId}:messages`));
+      unsubscribe1();
+      unsubscribe2();
     };
-  }, [chatId, messageHandler]);
+  }, [chatId, messageHandler, user.id]);
 
   return (
     <div className="flex flex-col h-full">
-      {error && (
-        <div className="bg-red-50 p-2 text-red-500 text-sm text-center">
-          {error}{" "}
-          <button
-            onClick={handleReconnection}
-            className="underline ml-2"
-            disabled={isReconnecting}
-          >
-            {isReconnecting ? "Reconnecting..." : "Try to reconnect"}
-          </button>
-        </div>
-      )}
-
       <div
         id="messages"
         className="flex h-full flex-1 flex-col-reverse gap-4 p-2 overflow-y-auto scrollbar-thumb-blue scrollbar-thumb-rounded scrollbar-track-blue-lighter scrollbar-w-2 scrolling-touch"

@@ -1,7 +1,5 @@
 import { fetchRedis, redis } from "@/helpers/redis";
 import { authOptions } from "@/lib/auth";
-import { pusherServer } from "@/lib/pusher";
-import { toPusherKey } from "@/lib/utils";
 import { addFriendValidator } from "@/lib/validators/add-friend";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -31,7 +29,7 @@ export async function POST(req: Request) {
       return new Response("Cannot add yourself", { status: 400 });
     }
 
-    // if already added
+    // Check if already added
     const isAlreadyAdded = (await fetchRedis(
       "sismember",
       `unstorage:user:${idToAdd}:incoming_friend_requests`,
@@ -41,7 +39,7 @@ export async function POST(req: Request) {
       return new Response("Already added", { status: 400 });
     }
 
-    // if already friends
+    // Check if already friends
     const isAlreadyFriend = (await fetchRedis(
       "sismember",
       `unstorage:user:${session.user.id}:friends`,
@@ -51,22 +49,17 @@ export async function POST(req: Request) {
       return new Response("Already friends", { status: 400 });
     }
 
-    // valid request
+    // Valid request, add to Redis
     await redis.sadd(
       `unstorage:user:${idToAdd}:incoming_friend_requests`,
       session.user.id
     );
 
-    await pusherServer.trigger(
-      toPusherKey(`unstorage:user:${idToAdd}:incoming_friend_requests`),
-      "incoming_friend_requests",
-      {
-        senderId: session.user.id,
-        senderEmail: session.user.email,
-      }
-    );
-
-    return new Response("OK", { status: 200 });
+    // Return the idToAdd to the client
+    return new Response(JSON.stringify({ idToAdd }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return new Response(err.message, { status: 400 });
