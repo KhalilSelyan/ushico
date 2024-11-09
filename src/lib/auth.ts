@@ -32,7 +32,6 @@ function getGoogleCredentials() {
 }
 
 export const authOptions: NextAuthOptions = {
-  // @ts-expect-error - it works
   adapter: UnstorageAdapter(storage),
   session: {
     strategy: "jwt",
