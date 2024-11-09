@@ -5,6 +5,10 @@ import { Check, UserPlus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FC, useEffect, useState } from "react";
 import { Session } from "next-auth";
+type IncomingFriendRequest = {
+  senderId: string;
+  senderEmail: string;
+};
 
 interface FriendRequestsProps {
   initialFriendRequests: IncomingFriendRequest[];
