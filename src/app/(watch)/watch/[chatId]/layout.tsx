@@ -71,7 +71,7 @@ const Layout = async ({ children, params }: LayoutProps) => {
             role="list"
             className="flex flex-1 flex-col gap-y-4 justify-between"
           >
-            <li className="max-h-[36rem]">
+            <li className="max-h-[calc(100dvh-18rem)] w-full">
               <Messages
                 chatId={chatId}
                 user={session.user}
