@@ -387,6 +387,12 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   const TIME_SYNC_THRESHOLD = 2.5; // seconds
   const SYNC_RETRY_INTERVAL = 5000; // 5 seconds
   const CONTROLS_HIDE_DELAY = 2000;
+  // After user authentication
+  useEffect(() => {
+    if (user?.id) {
+      wsService.setUserId(user.id);
+    }
+  }, [user]);
 
   useEffect(() => {
     setType(user?.id === userId1 ? "host" : "watcher");
@@ -394,10 +400,12 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
 
   // Subscribe to sync messages
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || !user.id) return;
 
     const channel = `sync-${chatId}`;
-    const unsubscribe = wsService.subscribe(channel, (data) => {
+    console.log(`Subscribing to channel: sync-${chatId}, event: sync`);
+
+    const unsubscribe = wsService.subscribe(channel, "sync", (data) => {
       console.log("Received data in subscription callback:", data);
       if (type !== "watcher" || !sourceRef.current) return;
 
@@ -441,7 +449,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
     return () => {
       unsubscribe();
     };
-  }, [chatId, type, url]);
+  }, [chatId, type, url, user.id]);
 
   // Sync video state to server
   const syncVideoState = useCallback(async () => {
