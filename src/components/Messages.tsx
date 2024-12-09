@@ -68,11 +68,20 @@ const Messages: FC<MessagesProps> = ({
   };
 
   useEffect(() => {
+    wsService.setUserId(user.id);
     const channelName = `chat:${chatId}:messages`;
     const userChannel = `user:${user.id}:chats`;
 
-    const unsubscribe1 = wsService.subscribe(userChannel, messageHandler);
-    const unsubscribe2 = wsService.subscribe(channelName, messageHandler);
+    const unsubscribe1 = wsService.subscribe(
+      userChannel,
+      "new_message",
+      messageHandler
+    );
+    const unsubscribe2 = wsService.subscribe(
+      channelName,
+      "incoming_message",
+      messageHandler
+    );
 
     return () => {
       unsubscribe1();

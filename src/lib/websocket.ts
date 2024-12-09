@@ -1,12 +1,14 @@
 // lib/websocket.ts
 class WebSocketService {
   private ws: WebSocket | null = null;
-  private subscribers: Map<string, Set<(data: any) => void>> = new Map();
+  private subscribers: Map<string, Map<string, Set<(data: any) => void>>> =
+    new Map(); // Map<channel, Map<event, Set<callback>>>
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectTimeout = 1000; // Start with 1 second
   private debug = true; // Enable logging
   private url: string;
+  private userId: string | null = null;
 
   constructor(url?: string) {
     if (url) {
@@ -15,6 +17,15 @@ class WebSocketService {
       this.url = process.env.NEXT_PUBLIC_WEBSOCKET_URL!;
     }
     this.connect();
+  }
+
+  public setUserId(userId: string) {
+    this.log("Setting userId:", userId);
+    this.userId = userId;
+    // If we're already connected, send a message to establish userId on server
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.send("system", "identify", { userId });
+    }
   }
 
   private log(...args: any[]) {
@@ -33,45 +44,26 @@ class WebSocketService {
         this.reconnectAttempts = 0;
         this.reconnectTimeout = 1000;
 
-        // Resubscribe to all channels
-        this.subscribers.forEach((callbacks, channel) => {
-          this.log("Resubscribing to channel:", channel);
-          const subscribeMessage = {
-            channel,
-            event: "subscribe",
-            data: {},
-          };
-          this.ws!.send(JSON.stringify(subscribeMessage));
+        // Send userId if available
+        if (this.userId) {
+          this.send("system", "identify", { userId: this.userId });
+        }
+
+        // Resubscribe to all channels and events
+        this.subscribers.forEach((channelMap, channel) => {
+          channelMap.forEach((eventSet, event) => {
+            const subscribeMessage = {
+              channel,
+              event: "subscribe",
+              data: { event },
+              userId: this.userId,
+            };
+            this.log("Resubscribing to channel:", channel, "event:", event);
+            this.ws!.send(JSON.stringify(subscribeMessage));
+          });
         });
       };
-
-      this.ws.onmessage = (event) => {
-        this.log("Received message:", event.data);
-        try {
-          const message = JSON.parse(event.data);
-          this.log("Parsed message:", message);
-
-          const subscribers = this.subscribers.get(message.channel);
-          this.log(
-            "Subscribers for channel",
-            message.channel,
-            ":",
-            subscribers?.size ?? 0
-          );
-
-          if (subscribers) {
-            subscribers.forEach((callback) => {
-              try {
-                callback(message.data); // Pass only the 'data' field
-              } catch (error) {
-                console.error("Error in subscriber callback:", error);
-              }
-            });
-          }
-        } catch (error) {
-          console.error("Error processing message:", error);
-        }
-      };
+      this.ws.onmessage = this.onMessage.bind(this);
 
       this.ws.onclose = () => {
         this.log("Disconnected");
@@ -87,6 +79,41 @@ class WebSocketService {
     }
   }
 
+  private onMessage(event: MessageEvent) {
+    this.log("Received message:", event.data);
+    try {
+      const message = JSON.parse(event.data);
+      this.log("Parsed message:", message);
+
+      const { channel, event: msgEvent, data } = message;
+
+      const channelMap = this.subscribers.get(channel);
+      if (!channelMap) return;
+
+      const eventSet = channelMap.get(msgEvent);
+      if (!eventSet) return;
+
+      this.log(
+        "Subscribers for channel",
+        channel,
+        "event",
+        msgEvent,
+        ":",
+        eventSet.size
+      );
+
+      eventSet.forEach((callback) => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error("Error in subscriber callback:", error);
+        }
+      });
+    } catch (error) {
+      console.error("Error processing message:", error);
+    }
+  }
+
   private handleReconnect() {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
@@ -99,62 +126,82 @@ class WebSocketService {
     }
   }
 
-  public subscribe(channel: string, callback: (data: any) => void) {
-    this.log("Subscribing to channel:", channel);
-
-    let isNewChannel = false;
-    if (!this.subscribers.has(channel)) {
-      isNewChannel = true;
-      this.subscribers.set(channel, new Set());
-    }
-
-    this.subscribers.get(channel)?.add(callback);
+  public subscribe(
+    channel: string,
+    event: string,
+    callback: (data: any) => void
+  ) {
     this.log(
-      "Current subscribers for channel",
-      channel,
-      ":",
-      this.subscribers.get(channel)?.size
+      `Subscribing to channel: ${channel}, event: ${event}, userId: ${this.userId}`
     );
 
-    if (isNewChannel) {
+    let channelMap = this.subscribers.get(channel);
+    if (!channelMap) {
+      channelMap = new Map<string, Set<(data: any) => void>>();
+      this.subscribers.set(channel, channelMap);
+    }
+
+    let eventSet = channelMap.get(event);
+    if (!eventSet) {
+      eventSet = new Set<(data: any) => void>();
+      channelMap.set(event, eventSet);
+    }
+
+    eventSet.add(callback);
+
+    // Send subscribe message if it's a new channel-event combination
+    if (eventSet.size === 1 && this.ws?.readyState === WebSocket.OPEN) {
+      const subscribeMessage = {
+        channel,
+        event: "subscribe",
+        data: { event },
+        userId: this.userId,
+      };
+      this.log("Sending subscribe message:", subscribeMessage);
+      this.ws.send(JSON.stringify(subscribeMessage));
+    }
+    // Return unsubscribe function
+    return () => this.unsubscribe(channel, event, callback);
+  }
+
+  public unsubscribe(
+    channel: string,
+    event: string,
+    callback: (data: any) => void
+  ) {
+    const channelMap = this.subscribers.get(channel);
+    if (!channelMap) return;
+
+    const eventSet = channelMap.get(event);
+    if (!eventSet) return;
+
+    eventSet.delete(callback);
+    if (eventSet.size === 0) {
+      channelMap.delete(event);
+
+      // Send unsubscribe message to server
       if (this.ws?.readyState === WebSocket.OPEN) {
-        const subscribeMessage = {
+        const unsubscribeMessage = {
           channel,
-          event: "subscribe",
-          data: {},
+          event: "unsubscribe",
+          data: { event },
+          userId: this.userId,
         };
-        this.log("Sending subscribe message:", subscribeMessage);
-        this.ws.send(JSON.stringify(subscribeMessage));
-      } else {
-        this.log("WebSocket not open, will subscribe on connect");
+        this.ws.send(JSON.stringify(unsubscribeMessage));
       }
     }
 
-    return () => this.unsubscribe(channel, callback);
-  }
-
-  private unsubscribe(channel: string, callback: (data: any) => void) {
-    const callbacks = this.subscribers.get(channel);
-    if (callbacks) {
-      callbacks.delete(callback);
-      if (callbacks.size === 0) {
-        this.subscribers.delete(channel);
-
-        // Send unsubscribe message to server
-        if (this.ws?.readyState === WebSocket.OPEN) {
-          const unsubscribeMessage = {
-            channel,
-            event: "unsubscribe",
-            data: {},
-          };
-          this.ws.send(JSON.stringify(unsubscribeMessage));
-        }
-      }
+    if (channelMap.size === 0) {
+      this.subscribers.delete(channel);
     }
   }
 
   public send(channel: string, event: string, data: any) {
-    const message = { channel, event, data };
+    if (!this.userId) {
+      console.error("User ID is not set. Cannot send message.");
+      return;
+    }
+    const message = { channel, event, data, userId: this.userId };
     this.log("Sending message:", message);
 
     if (this.ws) {
