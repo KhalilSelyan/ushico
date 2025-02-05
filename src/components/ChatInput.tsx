@@ -17,6 +17,8 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isFocused, setIsFocused] = useState<boolean>(false);
+
   const sendChatMessage = async () => {
     if (!input) return toast.error("Please enter a message.");
     setIsLoading(true);
@@ -61,7 +63,13 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
       <div className="relative flex-1 overflow-hidden rounded-lg shadow-sm ring-1 ring-inset ring-gray-300 focus-within:ring-2 focus-within:ring-indigo-600">
         <TextareaAutosize
           ref={textareaRef}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           onKeyDown={(e) => {
+            if (e.key === "f") {
+              e.preventDefault();
+              e.stopPropagation();
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               sendChatMessage();
