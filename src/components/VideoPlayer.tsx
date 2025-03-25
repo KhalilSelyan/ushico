@@ -1,7 +1,7 @@
 // videoplayer.tsx
 
 "use client";
-import { User } from "next-auth";
+import { User } from "better-auth";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Maximize2,
@@ -387,12 +387,6 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   const TIME_SYNC_THRESHOLD = 2.5; // seconds
   const SYNC_RETRY_INTERVAL = 5000; // 5 seconds
   const CONTROLS_HIDE_DELAY = 2000;
-  // After user authentication
-  useEffect(() => {
-    if (user?.id) {
-      wsService.setUserId(user.id);
-    }
-  }, [user]);
 
   useEffect(() => {
     setType(user?.id === userId1 ? "host" : "watcher");
@@ -403,51 +397,54 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
     if (!chatId || !user.id) return;
 
     const channel = `sync-${chatId}`;
-    console.log(`Subscribing to channel: sync-${chatId}, event: sync`);
+    let unsubscribe: (() => void) | undefined;
 
-    const unsubscribe = wsService.subscribe(channel, "sync", (data) => {
-      console.log("Received data in subscription callback:", data);
-      if (type !== "watcher" || !sourceRef.current) return;
+    const setupSubscription = async () => {
+      unsubscribe = await wsService.subscribe(channel, "sync", (data) => {
+        if (type !== "watcher" || !sourceRef.current) return;
 
-      // Update last known state
-      lastKnownState.current = data as SyncData;
-      const syncData = data as SyncData;
+        // Update last known state
+        lastKnownState.current = data as SyncData;
+        const syncData = data as SyncData;
 
-      if (syncData.url !== url) {
-        setUrl(syncData.url);
-        return;
-      }
-
-      const timeDifference = Math.abs(
-        syncData.timestamp - sourceRef.current.currentTime
-      );
-
-      const syncActions = async () => {
-        if (timeDifference > TIME_SYNC_THRESHOLD) {
-          sourceRef.current!.currentTime = syncData.timestamp;
+        if (syncData.url !== url) {
+          setUrl(syncData.url);
+          return;
         }
 
-        try {
-          if (syncData.state === "paused" && !sourceRef.current!.paused) {
-            await sourceRef.current!.pause();
-          } else if (
-            syncData.state === "playing" &&
-            sourceRef.current!.paused
-          ) {
-            await sourceRef.current!.play();
+        const timeDifference = Math.abs(
+          syncData.timestamp - sourceRef.current.currentTime
+        );
+
+        const syncActions = async () => {
+          if (timeDifference > TIME_SYNC_THRESHOLD) {
+            sourceRef.current!.currentTime = syncData.timestamp;
           }
-          setIsSynced(true);
-        } catch (err) {
-          console.error("Video state sync error:", err);
-          setIsSynced(false);
-        }
-      };
 
-      void syncActions();
-    });
+          try {
+            if (syncData.state === "paused" && !sourceRef.current!.paused) {
+              await sourceRef.current!.pause();
+            } else if (
+              syncData.state === "playing" &&
+              sourceRef.current!.paused
+            ) {
+              await sourceRef.current!.play();
+            }
+            setIsSynced(true);
+          } catch (err) {
+            console.error("Video state sync error:", err);
+            setIsSynced(false);
+          }
+        };
+
+        void syncActions();
+      });
+    };
+
+    void setupSubscription();
 
     return () => {
-      unsubscribe();
+      unsubscribe?.();
     };
   }, [chatId, type, url, user.id]);
 
@@ -475,7 +472,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
     }
 
     try {
-      wsService.send(`sync-${chatId}`, "sync", currentState);
+      await wsService.send(`sync-${chatId}`, "sync", currentState);
       setIsSynced(true);
       lastKnownState.current = currentState;
     } catch (err) {

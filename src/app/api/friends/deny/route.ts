@@ -1,42 +1,27 @@
-import { fetchRedis, redis } from "@/helpers/redis";
-import { authOptions } from "@/lib/auth";
-import { AxiosError } from "axios";
-import { getServerSession } from "next-auth";
+import { auth } from "@/auth/auth";
+import { denyFriendRequest } from "@/db/queries";
+import { headers } from "next/headers";
 import { z } from "zod";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const session = await getServerSession(authOptions);
+    const session = await auth.api.getSession({
+      headers: headers(),
+    });
     if (!session) {
       return new Response("Unauthorized", {
         status: 401,
       });
     }
 
+    const body = await req.json();
     const { id: idToDeny } = z
       .object({
         id: z.string(),
       })
       .parse(body);
 
-    // Check if already received request
-    const alreadyReceived = await fetchRedis(
-      "sismember",
-      `unstorage:user:${session.user.id}:incoming_friend_requests`,
-      idToDeny
-    );
-    if (!alreadyReceived) {
-      return new Response("No friend request", {
-        status: 400,
-      });
-    }
-
-    // Remove friend request
-    await redis.srem(
-      `unstorage:user:${session.user.id}:incoming_friend_requests`,
-      idToDeny
-    );
+    await denyFriendRequest(session.user.id, idToDeny);
 
     return new Response("OK", {
       status: 200,
@@ -45,10 +30,6 @@ export async function POST(req: Request) {
     if (error instanceof z.ZodError)
       return new Response("Invalid request payload", {
         status: 422,
-      });
-    else if (error instanceof AxiosError)
-      return new Response(error.message, {
-        status: 400,
       });
     else {
       return new Response("Invalid Request", {

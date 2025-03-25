@@ -1,14 +1,13 @@
 /* eslint-disable @next/next/no-img-element */
-import { getChatMessages } from "@/app/(dashboard)/dashboard/chat/[chatId]/page";
+import { auth } from "@/auth/auth";
 import ChatInput from "@/components/ChatInput";
 import { Icon, Icons } from "@/components/Icons";
 import Messages from "@/components/Messages";
 import MobileChatWatchLayout from "@/components/MobileChatWatchLayout";
 import SignoutButton from "@/components/SignoutButton";
+import { getChatMessages, getUnseenFriendRequestCount } from "@/db/queries";
 import { getFriendsById } from "@/helpers/getfriendsbyid";
-import { fetchRedis } from "@/helpers/redis";
-import { authOptions } from "@/lib/auth";
-import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
 import Link from "next/link";
 
 interface LayoutProps {
@@ -17,12 +16,14 @@ interface LayoutProps {
     chatId: string;
   };
 }
+
 type SidebarOption = {
   id: number;
   name: string;
   href: string;
   Icon: Icon;
 };
+
 const sidebarOptions: SidebarOption[] = [
   {
     id: 1,
@@ -34,19 +35,15 @@ const sidebarOptions: SidebarOption[] = [
 
 const Layout = async ({ children, params }: LayoutProps) => {
   const { chatId } = params;
-  const session = await getServerSession(authOptions);
+  const session = await auth.api.getSession({
+    headers: headers(),
+  });
   if (!session) return null;
-  const unseenRequestCount = (
-    (await fetchRedis(
-      "smembers",
-      `unstorage:user:${session.user.id}:incoming_friend_requests`
-    )) as unknown as User[]
-  ).length;
 
+  const unseenRequestCount = await getUnseenFriendRequestCount(session.user.id);
   const friends = await getFriendsById(session.user.id);
 
   const chatPartnerId = chatId.split("--").find((id) => id !== session.user.id);
-
   const chatPartner = friends.find((friend) => friend.id === chatPartnerId)!;
 
   const initialMessages = await getChatMessages(chatId);

@@ -1,7 +1,7 @@
 "use client";
+import { signIn } from "@/auth/auth-client";
 import { Icons } from "@/components/Icons";
 import Button from "@/components/ui/Button";
-import { signIn } from "next-auth/react";
 import { FC, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -12,7 +12,10 @@ const Page: FC<PageProps> = ({}) => {
   async function loginWithGoogle() {
     setIsLoading(true);
     try {
-      await signIn("google");
+      await signIn.social({
+        provider: "google",
+        callbackURL: "/dashboard",
+      });
     } catch (error) {
       // display error message to user
       toast.error("Something went wrong with your login.");
@@ -34,7 +37,9 @@ const Page: FC<PageProps> = ({}) => {
             isLoading={isLoading}
             type="button"
             className="max-w-sm mx-auto w-full"
-            onClick={loginWithGoogle}
+            onClick={async () => {
+              await loginWithGoogle();
+            }}
           >
             {isLoading ? null : (
               <svg

@@ -1,12 +1,13 @@
 "use client";
-import { FC, useState } from "react";
-import Button from "./ui/Button";
-import axios, { AxiosError } from "axios";
 import { AddFriend, addFriendValidator } from "@/lib/validators/add-friend";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useSession } from "next-auth/react";
+import axios, { AxiosError } from "axios";
+import { FC, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import Button from "./ui/Button";
+
+import { useSession } from "@/auth/auth-client";
 import { wsService } from "@/lib/websocket";
 
 interface AddFriendButtonProps {}
@@ -28,50 +29,42 @@ const AddFriendButton: FC<AddFriendButtonProps> = ({}) => {
 
   const addFriend = async (email: string) => {
     try {
-      const validatedEmail = addFriendValidator.parse({
-        email,
-      });
+      const validatedEmail = addFriendValidator.parse({ email });
 
       const response = await axios.post("/api/friends/add", {
-        email: validatedEmail,
+        email: validatedEmail.email,
       });
 
-      const { idToAdd } = response.data;
+      const { request, receiver } = response.data;
 
       if (session) {
-        // Send WebSocket message to the recipient's channel
-        wsService.send(
-          `user:${idToAdd}:incoming_friend_requests`,
-          "incoming_friend_request",
-          {
-            senderId: session.user.id,
-            senderEmail: session.user.email,
-            senderName: session.user.name,
-            senderImage: session.user.image,
-          }
-        );
-      } else {
-        console.error("User is not authenticated");
+        // Send WebSocket message to notify the receiver
+        // Using the channel format: user:{userId}:incoming_friend_requests
+        const channel = `user:${receiver.id}:incoming_friend_requests`;
+        await wsService.send(channel, "incoming_friend_request", {
+          senderId: session.user.id,
+          senderEmail: session.user.email,
+          senderName: session.user.name,
+          senderImage: session.user.image,
+          requestId: request.id,
+          timestamp: new Date().toISOString(),
+        });
       }
 
       setShowSuccessState(true);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        setError("email", {
-          message: err.message,
-        });
+        setError("email", { message: err.message });
         return;
       }
       if (err instanceof AxiosError) {
         setError("email", {
-          message: err.response?.data,
+          message: err.response?.data?.error || "Something went wrong",
         });
         return;
       }
 
-      setError("email", {
-        message: "Something went wrong",
-      });
+      setError("email", { message: "Something went wrong" });
     }
   };
 

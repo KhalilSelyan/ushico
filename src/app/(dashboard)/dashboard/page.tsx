@@ -1,31 +1,38 @@
 /* eslint-disable @next/next/no-img-element */
+import { auth } from "@/auth/auth";
+import { getChatMessages } from "@/db/queries";
+import type { Message } from "@/db/schema";
 import { getFriendsById } from "@/helpers/getfriendsbyid";
-import { fetchRedis } from "@/helpers/redis";
-import { authOptions } from "@/lib/auth";
 import { distanceFromDateInHours, hrefChatConstructor } from "@/lib/utils";
+import type { User } from "better-auth";
 import { ChevronRight } from "lucide-react";
-import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
 import Link from "next/link";
 
+type FriendWithLastMessage = User & {
+  lastMessage: Message | null;
+};
+
 const page = async () => {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+  const session = await auth.api.getSession({
+    headers: headers(),
+  });
+  if (!session?.user?.id) {
     return null;
   }
+
   const friends = await getFriendsById(session.user.id);
 
   const friendsWithLastMessage = await Promise.allSettled(
     friends.map(async (friend) => {
-      const [lastMessage] = (await fetchRedis(
-        "zrange",
-        `chat:${hrefChatConstructor(session.user.id, friend.id)}:messages`,
-        -1,
-        -1
-      )) as string[];
+      const messages = await getChatMessages(
+        hrefChatConstructor(session.user.id, friend.id)
+      );
+      const lastMessage = messages[messages.length - 1] || null;
       return {
         ...friend,
-        lastMessage: lastMessage ? JSON.parse(lastMessage) : null,
-      };
+        lastMessage,
+      } as FriendWithLastMessage;
     })
   );
 
@@ -35,15 +42,8 @@ const page = async () => {
 
   const fulfilledFriends = friendsWithLastMessage
     .filter(
-      (
-        friend
-      ): friend is PromiseFulfilledResult<{
-        lastMessage: Message | null;
-        name: string;
-        email: string;
-        image: string;
-        id: string;
-      }> => friend.status === "fulfilled"
+      (friend): friend is PromiseFulfilledResult<FriendWithLastMessage> =>
+        friend.status === "fulfilled"
     )
     .map((friend) => friend.value);
 
@@ -83,7 +83,7 @@ const page = async () => {
                   <div className="flex items-center w-full">
                     <div className="relative h-8 w-8 sm:w-12 sm:h-12 aspect-square">
                       <img
-                        src={friend.image}
+                        src={friend.image || ""}
                         alt={friend.name}
                         className="rounded-full"
                         referrerPolicy="no-referrer"

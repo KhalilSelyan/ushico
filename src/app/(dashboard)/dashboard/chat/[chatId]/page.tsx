@@ -1,11 +1,11 @@
 /* eslint-disable @next/next/no-img-element */
+import { auth } from "@/auth/auth";
 import ChatInput from "@/components/ChatInput";
 import Messages from "@/components/Messages";
-import { fetchRedis } from "@/helpers/redis";
-import { authOptions } from "@/lib/auth";
-import { messageListValidator } from "@/lib/validators/messages";
+import { getChatMessages } from "@/db/queries";
+import { getSpecificUserById } from "@/helpers/getfriendsbyid";
 import { MonitorPlay, User2Icon } from "lucide-react";
-import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
 import Link from "next/link";
 
 interface PageProps {
@@ -14,36 +14,11 @@ interface PageProps {
   };
 }
 
-export async function getChatMessages(chatId: string) {
-  try {
-    const result: string[] = (await fetchRedis(
-      "zrange",
-      `chat:${chatId}:messages`,
-      0,
-      -1
-    )) as string[];
-    const dbMessages = result.map((message) => JSON.parse(message) as Message);
-    const reversedDbMessages = dbMessages.reverse();
-    const messages = messageListValidator.parse(reversedDbMessages);
-
-    return messages;
-  } catch (error) {
-    return [
-      {
-        id: "0",
-        senderId: "0",
-        senderName: "",
-        senderImage: "",
-        text: "0",
-        timestamp: 0,
-      },
-    ];
-  }
-}
-
 const Page = async ({ params }: PageProps) => {
   const { chatId } = params;
-  const session = await getServerSession(authOptions);
+  const session = await auth.api.getSession({
+    headers: headers(),
+  });
   if (!session) return null;
   const { user } = session;
 
@@ -52,15 +27,12 @@ const Page = async ({ params }: PageProps) => {
   if (userId1 !== user.id && userId2 !== user.id) return null;
 
   const chatPartnerId = userId1 === user.id ? userId2 : userId1;
-
-  const chatPartner = JSON.parse(
-    (await fetchRedis("get", `unstorage:user:${chatPartnerId}`)) as string
-  ) as User;
+  const chatPartner = await getSpecificUserById(chatPartnerId);
+  if (!chatPartner) return null;
 
   const initialMessages = await getChatMessages(chatId);
-
   return (
-    <div className="flex flex-col flex-1 justify-between h-full max-h-[calc(100dvh-14rem)]">
+    <div className="flex flex-col flex-1 justify-between h-full max-h-[calc(100dvh-1rem)]">
       <div className="flex sm:items-center justify-between py-3 px-4 border-b-2 border-gray-200">
         <div className="flex items-center space-x-4">
           <div className="relative">

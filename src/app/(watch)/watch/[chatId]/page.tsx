@@ -1,7 +1,7 @@
+import { auth } from "@/auth/auth";
 import VideoPlayer from "@/components/VideoPlayer";
 import Header from "@/components/WatchHeader";
-import { authOptions } from "@/lib/auth";
-import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
 
 interface PageProps {
   params: {
@@ -11,7 +11,9 @@ interface PageProps {
 
 const Page = async ({ params }: PageProps) => {
   const { chatId } = params;
-  const session = await getServerSession(authOptions);
+  const session = await auth.api.getSession({
+    headers: headers(),
+  });
 
   if (!session) return null;
 

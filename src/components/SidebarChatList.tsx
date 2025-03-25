@@ -1,10 +1,17 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
+import { Message } from "@/db/schema";
 import { hrefChatConstructor } from "@/lib/utils";
 import { wsService } from "@/lib/websocket";
 import { usePathname, useRouter } from "next/navigation";
 import { FC, useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
+import { User } from "better-auth";
+
+type MessageWithSender = Message & {
+  senderImage?: string;
+  senderName?: string;
+};
 
 interface SidebarChatListProps {
   chats: User[];
@@ -14,12 +21,12 @@ interface SidebarChatListProps {
 const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
   const router = useRouter();
   const pathname = usePathname();
-  const [unseenMessages, setUnseenMessages] = useState<Message[]>([]);
+  const [unseenMessages, setUnseenMessages] = useState<MessageWithSender[]>([]);
   const [activeChats, setActiveChats] = useState<User[]>(chats);
 
   const chatHandler = useCallback(
     (message: any) => {
-      const data = message as Message;
+      const data = message as MessageWithSender;
       const shouldNotify =
         pathname !==
         `/dashboard/chat/${hrefChatConstructor(userId, data.senderId)}`;
@@ -83,35 +90,40 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
     if (message.event === "new_friend") {
       const newFriend = message.data as User;
       setActiveChats((prev) => [...prev, newFriend]);
+    } else if (message.event === "friend_removed") {
+      const removedFriendId = message.data.userId;
+      setActiveChats((prev) =>
+        prev.filter((friend) => friend.id !== removedFriendId)
+      );
     }
   }, []);
 
   useEffect(() => {
     const userChatsChannel = `user:${userId}:chats`;
     const userFriendsChannel = `user:${userId}:friends`;
+    let unsubscribeChats: (() => void) | undefined;
+    let unsubscribeFriends: (() => void) | undefined;
 
-    console.log(
-      "Subscribing to channels:",
-      userChatsChannel,
-      userFriendsChannel
-    );
+    const setupSubscriptions = async () => {
+      unsubscribeChats = await wsService.subscribe(
+        userChatsChannel,
+        "new_message",
+        chatHandler
+      );
+      unsubscribeFriends = await wsService.subscribe(
+        userFriendsChannel,
+        "new_friend",
+        friendHandler
+      );
+    };
 
-    const unsubscribeChats = wsService.subscribe(userChatsChannel, chatHandler);
-    const unsubscribeFriends = wsService.subscribe(
-      userFriendsChannel,
-      friendHandler
-    );
+    void setupSubscriptions();
 
     return () => {
-      console.log(
-        "Unsubscribing from channels:",
-        userChatsChannel,
-        userFriendsChannel
-      );
-      unsubscribeChats();
-      unsubscribeFriends();
+      unsubscribeChats?.();
+      unsubscribeFriends?.();
     };
-  }, [chatHandler, friendHandler, pathname, router, userId]);
+  }, [chatHandler, friendHandler, userId]);
 
   useEffect(() => {
     if (pathname?.includes("chat")) {

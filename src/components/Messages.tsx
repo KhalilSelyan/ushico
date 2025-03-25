@@ -1,22 +1,15 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 import { cn } from "@/lib/utils";
-import { User } from "next-auth";
+import { Message as DbMessage } from "@/db/schema";
+import { User } from "better-auth";
 import { FC, useEffect, useRef, useState, useCallback } from "react";
 import { format } from "date-fns";
 import { wsService } from "@/lib/websocket";
-
-interface Message {
-  id: string;
-  senderId: string;
-  senderImage?: string;
-  senderName?: string;
-  text: string;
-  timestamp: number;
-}
+import { FormattedMessage, formatMessage } from "@/types/message";
 
 interface MessagesProps {
-  initialMessages: Message[];
+  initialMessages: DbMessage[];
   user: User;
   chatPartner: User;
   chatId: string;
@@ -29,31 +22,19 @@ const Messages: FC<MessagesProps> = ({
   chatId,
 }) => {
   const scrollDownRef = useRef<HTMLDivElement>(null);
-  const [messages, setMessages] = useState<Message[]>(() =>
-    // Sort messages by timestamp in descending order initially
-    [...initialMessages].sort((a, b) => b.timestamp - a.timestamp)
+  const [messages, setMessages] = useState<FormattedMessage[]>(() =>
+    initialMessages.map(formatMessage).sort((a, b) => a.timestamp - b.timestamp)
   );
 
   const messageHandler = useCallback((message: any) => {
-    const newMessage = message as Message;
+    const newMessage = formatMessage(message as DbMessage);
     setMessages((prev) => {
       // Check if message already exists
       if (prev.some((m) => m.id === newMessage.id)) {
         return prev;
       }
 
-      const newMessages = [...prev];
-      const insertIndex = newMessages.findIndex(
-        (m) => m.timestamp < newMessage.timestamp
-      );
-
-      if (insertIndex === -1) {
-        newMessages.push(newMessage);
-      } else {
-        newMessages.splice(insertIndex, 0, newMessage);
-      }
-
-      return newMessages;
+      return [...prev, newMessage].sort((a, b) => a.timestamp - b.timestamp);
     });
 
     // Scroll to bottom
@@ -68,24 +49,31 @@ const Messages: FC<MessagesProps> = ({
   };
 
   useEffect(() => {
-    wsService.setUserId(user.id);
     const channelName = `chat:${chatId}:messages`;
     const userChannel = `user:${user.id}:chats`;
 
-    const unsubscribe1 = wsService.subscribe(
-      userChannel,
-      "new_message",
-      messageHandler
-    );
-    const unsubscribe2 = wsService.subscribe(
-      channelName,
-      "incoming_message",
-      messageHandler
-    );
+    let unsubscribe1: (() => void) | undefined;
+    let unsubscribe2: (() => void) | undefined;
+
+    // Set up subscriptions
+    const setupSubscriptions = async () => {
+      unsubscribe1 = await wsService.subscribe(
+        userChannel,
+        "new_message",
+        messageHandler
+      );
+      unsubscribe2 = await wsService.subscribe(
+        channelName,
+        "incoming_message",
+        messageHandler
+      );
+    };
+
+    void setupSubscriptions();
 
     return () => {
-      unsubscribe1();
-      unsubscribe2();
+      unsubscribe1?.();
+      unsubscribe2?.();
     };
   }, [chatId, messageHandler, user.id]);
 
@@ -93,21 +81,20 @@ const Messages: FC<MessagesProps> = ({
     <div className="flex flex-col h-full">
       <div
         id="messages"
-        className="flex h-full flex-1 flex-col-reverse gap-4 p-2 overflow-y-auto scrollbar-thumb-blue scrollbar-thumb-rounded scrollbar-track-blue-lighter scrollbar-w-2 scrolling-touch"
+        className="flex h-full flex-col gap-4 p-2 overflow-y-auto scrollbar-thumb-blue scrollbar-thumb-rounded scrollbar-track-blue-lighter scrollbar-w-2 scrolling-touch"
       >
-        <div ref={scrollDownRef} />
         {messages.map((message, index) => {
           const isCurrentUser = message.senderId === user.id;
           const hasNextMessageFromSameUser =
-            messages[index - 1]?.senderId === message.senderId;
-          const hasPrevMessageFromSameUser =
             messages[index + 1]?.senderId === message.senderId;
+          const hasPrevMessageFromSameUser =
+            messages[index - 1]?.senderId === message.senderId;
 
           // Group messages that are within 2 minutes of each other
           const showTimestamp =
             !hasPrevMessageFromSameUser ||
-            (messages[index + 1] &&
-              message.timestamp - messages[index + 1].timestamp > 120000);
+            (messages[index - 1] &&
+              messages[index - 1].timestamp - message.timestamp > 120000);
 
           return (
             <div
@@ -179,6 +166,7 @@ const Messages: FC<MessagesProps> = ({
             </div>
           );
         })}
+        <div ref={scrollDownRef} />
       </div>
     </div>
   );

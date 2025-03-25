@@ -1,22 +1,14 @@
-import { fetchRedis, redis } from "@/helpers/redis";
-import { authOptions } from "@/lib/auth";
-import { Message, messageValidator } from "@/lib/validators/messages";
-import { nanoid } from "nanoid";
-import { getServerSession } from "next-auth";
+import { auth } from "@/auth/auth";
+import { sendMessage } from "@/db/queries";
+import { messageValidator } from "@/lib/validators/messages";
+import { headers } from "next/headers";
 import { z } from "zod";
-import { wsService } from "@/lib/websocket";
 
 // Define request schema
 const messageRequestSchema = z.object({
   text: z.string().min(1).max(2000), // Adjust max length as needed
   chatId: z.string().regex(/^[\w-]+--[\w-]+$/),
 });
-
-interface User {
-  id: string;
-  name: string;
-  image?: string;
-}
 
 export async function POST(req: Request) {
   try {
@@ -46,7 +38,9 @@ export async function POST(req: Request) {
     const { text, chatId } = result.data;
 
     // 3. Auth validation
-    const session = await getServerSession(authOptions);
+    const session = await auth.api.getSession({
+      headers: headers(),
+    });
     if (!session?.user) {
       return new Response(
         JSON.stringify({ error: "Unauthorized: No valid session" }),
@@ -71,93 +65,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const receiverId = user.id === userId1 ? userId2 : userId1;
-
-    // 5. Friend validation
-    let friendList: string[];
-    try {
-      friendList = (await fetchRedis(
-        "smembers",
-        `unstorage:user:${user.id}:friends`
-      )) as string[];
-    } catch (error) {
-      console.error("Redis friend list error:", error);
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch friend list" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!friendList.includes(receiverId)) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized: Users are not friends" }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // 6. Fetch sender information
-    let sender: User;
-    try {
-      const senderData = await fetchRedis("get", `unstorage:user:${user.id}`);
-      if (!senderData) {
-        throw new Error("Sender data not found");
-      }
-      sender = JSON.parse(senderData as string);
-    } catch (error) {
-      console.error("Redis sender fetch error:", error);
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch sender information" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // 7. Create and validate message
-    const timestamp = Date.now();
-    const messageData: Message = {
-      id: nanoid(),
+    // 5. Send message
+    const message = await sendMessage({
+      chatId,
       senderId: user.id,
       text,
-      senderImage: user.image ?? "",
-      senderName: user.name ?? "",
-      timestamp,
-    };
-
-    try {
-      messageValidator.parse(messageData);
-    } catch (error) {
-      console.error("Message validation error:", error);
-      return new Response(JSON.stringify({ error: "Invalid message format" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    // 8. Store message in Redis
-    try {
-      await redis.zadd(
-        `chat:${chatId}:messages`,
-        timestamp,
-        JSON.stringify(messageData)
-      );
-      console.log("Message stored in Redis:", messageData);
-    } catch (error) {
-      console.error("Redis message storage error:", error);
-      return new Response(
-        JSON.stringify({ error: "Failed to store message" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    });
 
     return new Response(
       JSON.stringify({
         success: true,
         message: "Message sent successfully",
-        messageData, // Include the message data in response
+        messageData: message,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
-    // 11. Catch-all error handler
     console.error("Unexpected error:", error);
     return new Response(
       JSON.stringify({

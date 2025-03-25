@@ -1,7 +1,8 @@
 "use client";
 
 import { Loader2, LogOut } from "lucide-react";
-import { signOut } from "next-auth/react";
+
+import { signOut } from "@/auth/auth-client";
 import { ButtonHTMLAttributes, FC, useState } from "react";
 import { toast } from "react-hot-toast";
 import Button from "./ui/Button";
@@ -14,6 +15,7 @@ const SignOutButton: FC<SignOutButtonProps> = ({ ...props }) => {
     <Button
       {...props}
       variant="ghost"
+      size="sm"
       onClick={async () => {
         setIsSigningOut(true);
         try {

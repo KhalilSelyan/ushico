@@ -1,23 +1,24 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { Transition, Dialog } from "@headlessui/react";
+import { Message as DbMessage } from "@/db/schema";
+import { Dialog, Transition } from "@headlessui/react";
+import { User } from "better-auth";
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { FC, Fragment, useEffect, useState } from "react";
+import ChatInput from "./ChatInput";
 import { Icons } from "./Icons";
+import Messages from "./Messages";
 import SignOutButton from "./SignoutButton";
 import Button, { buttonVariants } from "./ui/Button";
-import { usePathname } from "next/navigation";
-import Messages from "./Messages";
-import ChatInput from "./ChatInput";
-import { User } from "next-auth";
 
 interface MobileChatWatchLayoutProps {
   chatId: string;
   user: User;
   chatPartner: User;
-  initialMessages: Message[];
+  initialMessages: DbMessage[];
 }
 
 const MobileChatWatchLayout: FC<MobileChatWatchLayoutProps> = ({

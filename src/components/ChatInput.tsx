@@ -1,5 +1,5 @@
 "use client";
-import { User } from "next-auth";
+import { User } from "better-auth";
 import { FC, useRef, useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import Button from "./ui/Button";
@@ -17,6 +17,7 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
   const sendChatMessage = async () => {
     if (!input) return toast.error("Please enter a message.");
     setIsLoading(true);
@@ -28,23 +29,23 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
       });
 
       if (response.status !== 200) {
-        console.error("API response error:", response.data.error);
-        return;
+        throw new Error(response.data.error || "Failed to send message");
       }
+
       const messageData = response.data.messageData;
 
       // Send the message via WebSocket to chat channel
-      wsService.send(
-        `chat:${chatId}:messages`,
-        "incoming_message",
-        messageData
-      );
+      await wsService.send(`chat:${chatId}:messages`, "incoming_message", {
+        ...messageData,
+        timestamp: new Date().toISOString(),
+      });
 
-      // Optionally, send notification to the receiver's channel
-      wsService.send(`user:${chatPartner.id}:chats`, "new_message", {
+      // Send notification to the receiver's channel
+      await wsService.send(`user:${chatPartner.id}:chats`, "new_message", {
         ...messageData,
         senderImg: user.image,
         senderName: user.name,
+        timestamp: new Date().toISOString(),
       });
 
       setInput("");
@@ -56,15 +57,16 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
       setIsLoading(false);
     }
   };
+
   return (
-    <div className="border-t border-gray-200 px-4 pt-4 pb-2 sm:pb-0">
+    <div className="border-t border-gray-200 px-4 pt-4 mb-2 sm:mb-0">
       <div className="relative flex-1 overflow-hidden rounded-lg shadow-sm ring-1 ring-inset ring-gray-300 focus-within:ring-2 focus-within:ring-indigo-600">
         <TextareaAutosize
           ref={textareaRef}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              sendChatMessage();
+              void sendChatMessage();
             }
           }}
           rows={1}

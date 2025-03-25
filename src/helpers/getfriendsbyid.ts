@@ -1,37 +1,16 @@
-import { fetchRedis } from "./redis";
+import { getFriendsById as getFriendsFromDb } from "@/db/queries";
+import { user as userTable } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import type { User } from "@/db/schema";
+import db from "@/db";
 
-export async function getFriendsById(id: string) {
-  const friendIds = (await fetchRedis(
-    "smembers",
-    `unstorage:user:${id}:friends`
-  )) as string[];
-
-  const friends = await Promise.allSettled(
-    friendIds.map(async (friendId) =>
-      JSON.parse(
-        (await fetchRedis("get", `unstorage:user:${friendId}`)) as string
-      )
-    )
-  );
-
-  const friendsFailed = friends.filter(
-    (friend) => friend.status === "rejected"
-  );
-
-  const friendsResolved = friends
-    .filter(
-      (friend): friend is PromiseFulfilledResult<User> =>
-        friend.status === "fulfilled"
-    )
-    .map((friend) => {
-      return friend.value;
-    });
-
-  return friendsResolved;
+export async function getFriendsById(id: string): Promise<User[]> {
+  return getFriendsFromDb(id);
 }
 
-export async function getSpecificUserById(id: string) {
-  return JSON.parse(
-    (await fetchRedis("get", `unstorage:user:${id}`)) as string
-  ) as User;
+export async function getSpecificUserById(id: string): Promise<User | null> {
+  const result = await db.query.user.findFirst({
+    where: eq(userTable.id, id),
+  });
+  return result ?? null;
 }
