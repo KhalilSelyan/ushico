@@ -27,6 +27,7 @@ interface SyncData {
   url: string;
   chatId: string;
   state: "playing" | "paused";
+  videoId?: string;
 }
 
 interface OptimizedSyncData {
@@ -386,6 +387,8 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
     "good"
   );
   const lastMessageTime = useRef<number>(0);
+  const [currentVideoId, setCurrentVideoId] = useState<string>("");
+  const lastKnownUrl = useRef<string>("");
 
   const sourceRef = useRef<HTMLVideoElement>(null);
   const lastSyncTime = useRef<number>(0);
@@ -405,6 +408,84 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
     setType(user?.id === userId1 ? "host" : "watcher");
   }, [user, userId1]);
 
+  // Sync video state to server
+  const batchedSync = useCallback(async () => {
+    if (!sourceRef.current || !url || type !== "host") return;
+
+    const now = Date.now();
+    if (now - lastSyncTime.current < 500) return;
+    lastSyncTime.current = now;
+
+    const updates: OptimizedSyncData[] = [];
+
+    // Collect all changes
+    if (url !== lastKnownUrl.current) {
+      updates.push({
+        type: "url",
+        data: url,
+        timestamp: now,
+      });
+    }
+
+    const timeDiff = Math.abs(
+      sourceRef.current.currentTime - (lastKnownState.current?.timestamp ?? 0)
+    );
+    if (timeDiff > TIME_SYNC_THRESHOLD) {
+      updates.push({
+        type: "time",
+        data: sourceRef.current.currentTime,
+        timestamp: now,
+      });
+    }
+
+    const currentState = sourceRef.current.paused ? "paused" : "playing";
+    if (currentState !== lastKnownState.current?.state) {
+      updates.push({
+        type: "state",
+        data: currentState,
+        timestamp: now,
+      });
+    }
+
+    // Send all updates in one message if there are any
+    if (updates.length > 0) {
+      await wsService.send(`sync-${chatId}`, "sync", {
+        ...updates[0],
+        videoId: currentVideoId,
+      });
+    }
+
+    lastKnownState.current = {
+      url,
+      timestamp: sourceRef.current.currentTime,
+      state: currentState,
+      chatId,
+      videoId: currentVideoId,
+    };
+  }, [chatId, url, type, currentVideoId]);
+
+  // Update URL and sync with server
+  const updateUrl = useCallback(
+    (newUrl: string) => {
+      try {
+        new URL(newUrl); // Basic URL validation
+        const newVideoId = `${Date.now()}-${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        setCurrentVideoId(newVideoId);
+        lastKnownUrl.current = newUrl;
+        setUrl(newUrl);
+        if (type === "host") {
+          void batchedSync(); // Sync new URL immediately
+        }
+        setError(null);
+      } catch {
+        setError("Please enter a valid URL");
+      }
+    },
+    [type, batchedSync]
+  );
+
   // Subscribe to sync messages
   useEffect(() => {
     if (!chatId || !user.id) return;
@@ -420,7 +501,6 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
 
         // Monitor message delay
         if (messageDelay > 1000) {
-          // More than 1 second delay
           setConnectionQuality("poor");
         } else {
           setConnectionQuality("good");
@@ -432,8 +512,16 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         lastKnownState.current = data as SyncData;
         const syncData = data as SyncData;
 
-        if (syncData.url !== url) {
+        // Handle URL updates with video ID
+        if (syncData.url !== lastKnownUrl.current) {
+          lastKnownUrl.current = syncData.url;
           setUrl(syncData.url);
+          setCurrentVideoId(syncData.videoId || "");
+          return;
+        }
+
+        // Only process time and state updates if we're on the same video
+        if (syncData.videoId && syncData.videoId !== currentVideoId) {
           return;
         }
 
@@ -471,59 +559,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
     return () => {
       unsubscribe?.();
     };
-  }, [chatId, type, url, user.id]);
-
-  // Sync video state to server
-  const batchedSync = useCallback(async () => {
-    if (!sourceRef.current || !url || type !== "host") return;
-
-    const now = Date.now();
-    if (now - lastSyncTime.current < 500) return;
-    lastSyncTime.current = now;
-
-    const updates: OptimizedSyncData[] = [];
-
-    // Collect all changes
-    if (url !== lastKnownState.current?.url) {
-      updates.push({
-        type: "url",
-        data: url,
-        timestamp: now,
-      });
-    }
-
-    const timeDiff = Math.abs(
-      sourceRef.current.currentTime - (lastKnownState.current?.timestamp ?? 0)
-    );
-    if (timeDiff > TIME_SYNC_THRESHOLD) {
-      updates.push({
-        type: "time",
-        data: sourceRef.current.currentTime,
-        timestamp: now,
-      });
-    }
-
-    const currentState = sourceRef.current.paused ? "paused" : "playing";
-    if (currentState !== lastKnownState.current?.state) {
-      updates.push({
-        type: "state",
-        data: currentState,
-        timestamp: now,
-      });
-    }
-
-    // Send all updates in one message if there are any
-    if (updates.length > 0) {
-      await wsService.send(`sync-${chatId}`, "sync", updates);
-    }
-
-    lastKnownState.current = {
-      url,
-      timestamp: sourceRef.current.currentTime,
-      state: currentState,
-      chatId,
-    };
-  }, [chatId, url, type]);
+  }, [chatId, type, url, user.id, currentVideoId]);
 
   // Periodic sync effect
   useEffect(() => {
@@ -540,23 +576,6 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
       if (syncTimeoutRef.current) clearInterval(syncTimeoutRef.current);
     };
   }, [SYNC_INTERVAL, batchedSync, type, connectionQuality]);
-
-  // Update URL and sync with server
-  const updateUrl = useCallback(
-    (newUrl: string) => {
-      try {
-        new URL(newUrl); // Basic URL validation
-        setUrl(newUrl);
-        if (type === "host") {
-          void batchedSync(); // Sync new URL immediately
-        }
-        setError(null);
-      } catch {
-        setError("Please enter a valid URL");
-      }
-    },
-    [type, batchedSync]
-  );
 
   // Periodic sync effect
   useEffect(() => {
