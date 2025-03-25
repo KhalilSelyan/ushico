@@ -98,7 +98,7 @@ const URLInput: React.FC<URLInputProps> = ({
             placeholder="Paste a url to an mp4 file"
             className="h-full w-full border-none bg-transparent px-4 text-white placeholder:text-white focus:outline-none"
             onChange={(e) => updateUrl(e.target.value)}
-            value={url}
+            value={url || ""}
           />
           {!isSynced && (
             <span className="pl-2 text-xs font-bold text-yellow-200">
@@ -468,6 +468,17 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   const updateUrl = useCallback(
     (newUrl: string) => {
       try {
+        // Don't update if the URL is empty and we already have a URL
+        if (!newUrl && url) {
+          return;
+        }
+
+        // If URL is empty and we don't have a URL, allow it
+        if (!newUrl && !url) {
+          setUrl("");
+          return;
+        }
+
         new URL(newUrl); // Basic URL validation
         const newVideoId = `${Date.now()}-${Math.random()
           .toString(36)
@@ -483,7 +494,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         setError("Please enter a valid URL");
       }
     },
-    [type, batchedSync]
+    [type, batchedSync, url]
   );
 
   // Subscribe to sync messages
@@ -513,7 +524,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         const syncData = data as SyncData;
 
         // Handle URL updates with video ID
-        if (syncData.url !== lastKnownUrl.current) {
+        if (syncData.url && syncData.url !== lastKnownUrl.current) {
           lastKnownUrl.current = syncData.url;
           setUrl(syncData.url);
           setCurrentVideoId(syncData.videoId || "");
@@ -656,7 +667,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   // Video control functions
 
   const togglePlay = useCallback(async () => {
-    if (type === "watcher") return;
+    if (type !== "host") return;
     if (!sourceRef.current) return;
 
     try {
@@ -667,10 +678,13 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         await sourceRef.current.pause();
         setIsPlaying(false);
       }
+      // Sync the new state immediately
+      await batchedSync();
     } catch (err) {
       console.error("Error toggling play state:", err);
+      setError("Failed to toggle play state");
     }
-  }, []);
+  }, [type, batchedSync]);
 
   const handleVolumeChange = useCallback((newVolume: number) => {
     if (!sourceRef.current) return;
