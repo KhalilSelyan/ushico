@@ -587,6 +587,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   // Video control functions
 
   const togglePlay = useCallback(async () => {
+    if (type === "watcher") return;
     if (!sourceRef.current) return;
 
     try {
