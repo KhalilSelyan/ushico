@@ -238,7 +238,10 @@ const VideoElement: React.FC<VideoElementProps> = ({
       onPause={syncVideoState}
       onPlay={syncVideoState}
       onSeeking={syncVideoState}
-      onError={() => setError("Failed to load video")}
+      onError={async () => {
+        setError("Failed to load video");
+        await syncVideoState();
+      }}
     >
       <source src={url} type="video/mp4" />
       Your browser does not support the video tag.
