@@ -29,6 +29,12 @@ interface SyncData {
   state: "playing" | "paused";
 }
 
+interface OptimizedSyncData {
+  type: "url" | "time" | "state";
+  data: string | number | "playing" | "paused";
+  timestamp: number;
+}
+
 /* Subcomponents */
 
 interface ErrorAndSyncNotificationsProps {
@@ -376,6 +382,10 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   const [showControls, setShowControls] = useState(true);
   const [isHovering, setIsHovering] = useState(false);
   const [showInterface, setShowInterface] = useState(true);
+  const [connectionQuality, setConnectionQuality] = useState<"good" | "poor">(
+    "good"
+  );
+  const lastMessageTime = useRef<number>(0);
 
   const sourceRef = useRef<HTMLVideoElement>(null);
   const lastSyncTime = useRef<number>(0);
@@ -404,6 +414,18 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
 
     const setupSubscription = async () => {
       unsubscribe = await wsService.subscribe(channel, "sync", (data) => {
+        const now = Date.now();
+        const messageDelay = now - lastMessageTime.current;
+        lastMessageTime.current = now;
+
+        // Monitor message delay
+        if (messageDelay > 1000) {
+          // More than 1 second delay
+          setConnectionQuality("poor");
+        } else {
+          setConnectionQuality("good");
+        }
+
         if (type !== "watcher" || !sourceRef.current) return;
 
         // Update last known state
@@ -452,47 +474,72 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   }, [chatId, type, url, user.id]);
 
   // Sync video state to server
-  const syncVideoState = useCallback(async () => {
+  const batchedSync = useCallback(async () => {
     if (!sourceRef.current || !url || type !== "host") return;
 
     const now = Date.now();
-    if (now - lastSyncTime.current < 500) return; // Throttle syncs to every 500ms
+    if (now - lastSyncTime.current < 500) return;
     lastSyncTime.current = now;
 
-    const currentState: SyncData = {
-      timestamp:
-        sourceRef.current.currentTime < 0 ? 0 : sourceRef.current.currentTime,
+    const updates: OptimizedSyncData[] = [];
+
+    // Collect all changes
+    if (url !== lastKnownState.current?.url) {
+      updates.push({
+        type: "url",
+        data: url,
+        timestamp: now,
+      });
+    }
+
+    const timeDiff = Math.abs(
+      sourceRef.current.currentTime - (lastKnownState.current?.timestamp ?? 0)
+    );
+    if (timeDiff > TIME_SYNC_THRESHOLD) {
+      updates.push({
+        type: "time",
+        data: sourceRef.current.currentTime,
+        timestamp: now,
+      });
+    }
+
+    const currentState = sourceRef.current.paused ? "paused" : "playing";
+    if (currentState !== lastKnownState.current?.state) {
+      updates.push({
+        type: "state",
+        data: currentState,
+        timestamp: now,
+      });
+    }
+
+    // Send all updates in one message if there are any
+    if (updates.length > 0) {
+      await wsService.send(`sync-${chatId}`, "sync", updates);
+    }
+
+    lastKnownState.current = {
       url,
+      timestamp: sourceRef.current.currentTime,
+      state: currentState,
       chatId,
-      state: sourceRef.current.paused ? "paused" : "playing",
     };
-
-    // Only sync if state has changed
-    if (
-      JSON.stringify(currentState) === JSON.stringify(lastKnownState.current)
-    ) {
-      return;
-    }
-
-    try {
-      await wsService.send(`sync-${chatId}`, "sync", currentState);
-      setIsSynced(true);
-      lastKnownState.current = currentState;
-    } catch (err) {
-      console.error("Error syncing video state:", err);
-      setIsSynced(false);
-    }
   }, [chatId, url, type]);
 
   // Periodic sync effect
   useEffect(() => {
     if (type !== "host") return;
-    void syncVideoState();
-    syncTimeoutRef.current = setInterval(syncVideoState, SYNC_INTERVAL);
+
+    const syncInterval =
+      connectionQuality === "poor"
+        ? SYNC_INTERVAL * 2 // Double the interval for poor connections
+        : SYNC_INTERVAL;
+
+    void batchedSync();
+    syncTimeoutRef.current = setInterval(batchedSync, syncInterval);
     return () => {
       if (syncTimeoutRef.current) clearInterval(syncTimeoutRef.current);
     };
-  }, [SYNC_INTERVAL, syncVideoState, type]);
+  }, [SYNC_INTERVAL, batchedSync, type, connectionQuality]);
 
   // Update URL and sync with server
   const updateUrl = useCallback(
@@ -501,23 +548,23 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         new URL(newUrl); // Basic URL validation
         setUrl(newUrl);
         if (type === "host") {
-          void syncVideoState(); // Sync new URL immediately
+          void batchedSync(); // Sync new URL immediately
         }
         setError(null);
       } catch {
         setError("Please enter a valid URL");
       }
     },
-    [type, syncVideoState]
+    [type, batchedSync]
   );
 
   // Periodic sync effect
   useEffect(() => {
     if (type !== "host") return;
-    void syncVideoState();
-    syncTimeoutRef.current = setInterval(syncVideoState, SYNC_INTERVAL);
+    void batchedSync();
+    syncTimeoutRef.current = setInterval(batchedSync, SYNC_INTERVAL);
     return () => clearInterval(syncTimeoutRef.current);
-  }, [SYNC_INTERVAL, syncVideoState, type]);
+  }, [SYNC_INTERVAL, batchedSync, type]);
 
   const toggleCustomFullscreen = useCallback(() => {
     setIsCustomFullscreen((prev) => {
@@ -696,7 +743,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
           sourceRef={sourceRef}
           url={url}
           setError={setError}
-          syncVideoState={syncVideoState}
+          syncVideoState={batchedSync}
           isCustomFullscreen={isCustomFullscreen}
           setCurrentTime={setCurrentTime}
           setDuration={setDuration}
