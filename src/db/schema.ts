@@ -1,5 +1,5 @@
-import { text, timestamp, boolean, pgTableCreator } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { boolean, pgTableCreator, text, timestamp } from "drizzle-orm/pg-core";
 
 const creator = pgTableCreator((name) => `${name}_table`);
 
@@ -26,6 +26,7 @@ export const userRelations = relations(user, ({ many }) => ({
   }),
   friends: many(friend, { relationName: "userFriends" }),
   friendOf: many(friend, { relationName: "friendOf" }),
+  movieVotes: many(movieVote),
 }));
 
 export type User = typeof user.$inferSelect;
@@ -180,3 +181,50 @@ export const friendRelations = relations(friend, ({ one }) => ({
 
 export type Friend = typeof friend.$inferSelect;
 export type NewFriend = typeof friend.$inferInsert;
+
+export const movie = creator("movie", {
+  id: text("id").primaryKey(),
+  tmdbId: text("tmdb_id").notNull().unique(),
+  title: text("title").notNull(),
+  overview: text("overview"),
+  posterPath: text("poster_path"),
+  releaseDate: text("release_date"),
+  voteAverage: text("vote_average"),
+  genreIds: text("genre_ids"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const movieRelations = relations(movie, ({ many }) => ({
+  votes: many(movieVote),
+}));
+
+export type Movie = typeof movie.$inferSelect;
+export type NewMovie = typeof movie.$inferInsert;
+
+export const movieVote = creator("movie_vote", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  movieId: text("movie_id")
+    .notNull()
+    .references(() => movie.id, { onDelete: "cascade" }),
+  vote: text("vote").notNull(), // "upvote", "downvote", or "neutral"
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const movieVoteRelations = relations(movieVote, ({ one }) => ({
+  user: one(user, {
+    fields: [movieVote.userId],
+    references: [user.id],
+  }),
+  movie: one(movie, {
+    fields: [movieVote.movieId],
+    references: [movie.id],
+  }),
+}));
+
+export type MovieVote = typeof movieVote.$inferSelect;
+export type NewMovieVote = typeof movieVote.$inferInsert;

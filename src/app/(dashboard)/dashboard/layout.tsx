@@ -1,4 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
+
+import { headers } from "next/headers";
+import Link from "next/link";
+import { redirect } from "next/navigation";
 import { auth } from "@/auth/auth";
 import FriendRequestBadge from "@/components/FriendRequestBadge";
 import { Icons } from "@/components/Icons";
@@ -7,9 +11,6 @@ import SidebarChatList from "@/components/SidebarChatList";
 import SignoutButton from "@/components/SignoutButton";
 import { getUnseenFriendRequestCount } from "@/db/queries";
 import { getFriendsById } from "@/helpers/getfriendsbyid";
-import { headers } from "next/headers";
-import Link from "next/link";
-import { redirect } from "next/navigation";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -34,6 +35,12 @@ const sidebarOptions: SidebarOption[] = [
     name: "Friends",
     href: "/dashboard/friends",
     Icon: "Users",
+  },
+  {
+    id: 3,
+    name: "Movies",
+    href: "/dashboard/movies",
+    Icon: "Film",
   },
 ];
 
@@ -69,7 +76,7 @@ const Layout = async ({ children }: LayoutProps) => {
             </Link>
           </div>
           <nav className="flex flex-1 flex-col">
-            <ul role="list" className="flex flex-1 flex-col gap-y-7">
+            <ul className="flex flex-1 flex-col gap-y-7">
               <li>
                 <div className="text-xs font-semibold leading-6 text-gray-400">
                   Your chats
@@ -80,7 +87,7 @@ const Layout = async ({ children }: LayoutProps) => {
                 <div className="text-xs font-semibold leading-6 text-gray-400">
                   Overview
                 </div>
-                <ul role="list" className="-mx-2 mt-2 space-y-1">
+                <ul className="-mx-2 mt-2 space-y-1">
                   {sidebarOptions.map((option) => {
                     const Icon = Icons[option.Icon];
                     return (
@@ -113,7 +120,7 @@ const Layout = async ({ children }: LayoutProps) => {
                         referrerPolicy="no-referrer"
                         className="rounded-full h-full w-full object-cover"
                         src={session.user.image || ""}
-                        alt="user profile image"
+                        alt="user profile "
                       />
                     </div>
                     <span className="sr-only">Your Profile</span>
