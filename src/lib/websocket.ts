@@ -35,6 +35,11 @@ export type WebSocketEvent =
   | "room_invitation"          // You've been invited to a room
   | "room_deactivated"         // Room was ended by host
   | "participant_kicked"       // You were removed from room
+  // NEW UX FEATURES
+  | "user_typing"              // User is typing in chat
+  | "user_stopped_typing"      // User stopped typing
+  | "video_reaction"           // Emoji reaction on video
+  | "room_announcement"        // Activity announcements
 
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -319,6 +324,60 @@ export const getWebSocketService = (userID?: string): WebSocketService => {
   }
   return _wsService;
 };
+
+// UX Features helper functions
+export function sendTypingIndicator(roomId: string, userId: string, userName: string): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "user_typing", {
+    roomId,
+    userId,
+    userName
+  });
+}
+
+export function sendStoppedTyping(roomId: string, userId: string, userName: string): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "user_stopped_typing", {
+    roomId,
+    userId,
+    userName
+  });
+}
+
+export function sendVideoReaction(
+  roomId: string,
+  emoji: string,
+  videoTimestamp: number,
+  user: { id: string; name: string }
+): void {
+  const wsService = getWebSocketService(user.id);
+  wsService.send(`room-${roomId}`, "video_reaction", {
+    roomId,
+    userId: user.id,
+    userName: user.name,
+    emoji,
+    videoTimestamp,
+    timestamp: new Date().toISOString(),
+    reactionId: `${Date.now()}-${user.id}`
+  });
+}
+
+export function sendRoomAnnouncement(
+  roomId: string,
+  type: string,
+  userName: string,
+  message: string
+): void {
+  const wsService = getWebSocketService();
+  wsService.send(`room-${roomId}`, "room_announcement", {
+    roomId,
+    type,
+    userName,
+    message,
+    timestamp: new Date().toISOString(),
+    announcementId: `${Date.now()}-${type}`
+  });
+}
 
 // Legacy export for backward compatibility - disabled auto-connect to prevent userID errors
 export const wsService = new WebSocketService(undefined, false);

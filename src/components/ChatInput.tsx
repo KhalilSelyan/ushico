@@ -5,7 +5,7 @@ import TextareaAutosize from "react-textarea-autosize";
 import Button from "./ui/ButtonOld";
 import axios from "axios";
 import toast from "react-hot-toast";
-import { getWebSocketService } from "@/lib/websocket";
+import { getWebSocketService, sendTypingIndicator, sendStoppedTyping } from "@/lib/websocket";
 
 interface ChatInputProps {
   chatId: string;
@@ -17,6 +17,8 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout>();
 
   const sendChatMessage = async () => {
     if (!input) return toast.error("Please enter a message.");
@@ -51,11 +53,47 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
 
       setInput("");
       textareaRef.current?.focus();
+
+      // Clear typing state when message is sent
+      if (isTyping) {
+        setIsTyping(false);
+        sendStoppedTyping(chatId, user.id, user.name || "");
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       toast.error("Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+
+    // Send typing indicator
+    if (!isTyping && e.target.value.trim()) {
+      setIsTyping(true);
+      sendTypingIndicator(chatId, user.id, user.name || "");
+    }
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Send stopped typing after 1 second of no typing
+    if (e.target.value.trim()) {
+      typingTimeoutRef.current = setTimeout(() => {
+        setIsTyping(false);
+        sendStoppedTyping(chatId, user.id, user.name || "");
+      }, 1000);
+    } else if (isTyping) {
+      // If input is cleared, immediately stop typing
+      setIsTyping(false);
+      sendStoppedTyping(chatId, user.id, user.name || "");
     }
   };
 
@@ -72,7 +110,7 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
           }}
           rows={1}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
           placeholder={`Message ${chatPartner.name}`}
           className="block w-full resize-none border-0 bg-transparent text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:py-1.5 sm:text-sm sm:leading-6"
         />

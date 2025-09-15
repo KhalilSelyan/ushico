@@ -1,7 +1,7 @@
 "use client";
 
 import { User } from "better-auth";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
 import RoomChat from "./RoomChat";
 import RoomInviteModal from "./RoomInviteModal";
@@ -26,6 +26,7 @@ const RoomWatchClient = ({
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [friends, setFriends] = useState<User[]>([]);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Fetch user's friends for inviting
   useEffect(() => {
@@ -53,6 +54,7 @@ const RoomWatchClient = ({
           userRole={userRole}
           participants={participants}
           user={user}
+          videoRef={videoRef}
         />
 
         {/* Mobile Chat Toggle Button */}
@@ -92,6 +94,7 @@ const RoomWatchClient = ({
           roomId={roomId}
           user={user}
           participants={participants}
+          videoRef={videoRef}
           className="h-full"
         />
       </div>
@@ -114,6 +117,7 @@ const RoomWatchClient = ({
                 roomId={roomId}
                 user={user}
                 participants={participants}
+                videoRef={videoRef}
                 className="h-full"
               />
             </div>

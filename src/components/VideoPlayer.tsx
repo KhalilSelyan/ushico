@@ -12,18 +12,26 @@ import {
   VolumeX,
   Volume1,
 } from "lucide-react";
-import { getWebSocketService, RoomSyncData, ErrorResponse } from "@/lib/websocket";
+import {
+  getWebSocketService,
+  RoomSyncData,
+  ErrorResponse,
+} from "@/lib/websocket";
 import { nanoid } from "nanoid";
+import { useVideoReactions } from "@/hooks/useVideoReactions";
+import { FloatingReactions } from "@/components/FloatingReactions";
+import { createAnnouncements } from "@/utils/announcements";
 
 /* Interfaces and types */
 
 interface VideoPlayerProps {
-  roomId: string;           // Changed from chatId
+  roomId: string; // Changed from chatId
   userRole: "host" | "viewer";
   participants: (User & { role: string })[];
   user: User;
   initialUrl?: string;
   className?: string;
+  videoRef?: React.RefObject<HTMLVideoElement>;
 }
 
 // Use the server-aligned interface from websocket.ts
@@ -388,9 +396,23 @@ const VideoControls: React.FC<VideoControlsProps> = ({
 
 /* Main VideoPlayer Component */
 
-const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, className }: VideoPlayerProps) => {
+const VideoPlayer = ({
+  roomId,
+  userRole,
+  participants,
+  user,
+  initialUrl,
+  className,
+  videoRef: externalVideoRef,
+}: VideoPlayerProps) => {
   // Initialize WebSocket service with userID
   const wsService = getWebSocketService(user.id);
+
+  // Video reactions hook
+  const { reactions, handleVideoReaction } = useVideoReactions(roomId);
+
+  // Announcements
+  const announcements = createAnnouncements(roomId);
 
   // State variables and refs
   const [type, setType] = useState<"host" | "watcher">("watcher");
@@ -412,7 +434,8 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
   const [currentVideoId, setCurrentVideoId] = useState<string>("");
   const lastKnownUrl = useRef<string>("");
 
-  const sourceRef = useRef<HTMLVideoElement>(null);
+  const internalVideoRef = useRef<HTMLVideoElement>(null);
+  const sourceRef = externalVideoRef || internalVideoRef;
   const lastSyncTime = useRef<number>(0);
   const syncTimeoutRef = useRef<NodeJS.Timeout>();
   const lastKnownState = useRef<SyncData | null>(null);
@@ -444,16 +467,16 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
           await wsService.send(`room-${roomId}`, "sync_room_state", {
             roomId,
             hostId: user.id,
-            participants: participants.map(p => ({
+            participants: participants.map((p) => ({
               userId: p.id,
-              role: p.role
-            }))
+              role: p.role,
+            })),
           });
         } else {
           // Join existing room as viewer
           await wsService.send(`room-${roomId}`, "join_room", {
             roomId,
-            userId: user.id
+            userId: user.id,
           });
         }
       } catch (error) {
@@ -546,6 +569,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
         lastKnownUrl.current = newUrl;
         setUrl(newUrl);
         if (type === "host") {
+          announcements.videoChanged(user.name || "Host", newUrl);
           void batchedSync(); // Sync new URL immediately
         }
         setError(null);
@@ -563,7 +587,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
     const channel = `room-${roomId}`;
     let unsubscribe1: (() => void) | undefined;
     let unsubscribe2: (() => void) | undefined;
-
+    let unsubscribeReactions: (() => void) | undefined;
     const setupSubscription = async () => {
       // Subscribe to sync events
       unsubscribe1 = await wsService.subscribe(channel, "host_sync", (data) => {
@@ -625,12 +649,24 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
         void syncActions();
       });
 
+      // Subscribe to video reactions
+
+      unsubscribeReactions = await wsService.subscribe(
+        channel,
+        "video_reaction",
+        handleVideoReaction
+      );
+
       // Subscribe to error responses
-      unsubscribe2 = await wsService.subscribe(channel, "error_response", (errorData: ErrorResponse) => {
-        console.error("WebSocket error:", errorData);
-        setError(`${errorData.error}: ${errorData.message}`);
-        setIsSynced(false);
-      });
+      unsubscribe2 = await wsService.subscribe(
+        channel,
+        "error_response",
+        (errorData: ErrorResponse) => {
+          console.error("WebSocket error:", errorData);
+          setError(`${errorData.error}: ${errorData.message}`);
+          setIsSynced(false);
+        }
+      );
 
       // Note: participant_joined, participant_left, host_transferred events
       // would be handled by parent components that manage participant lists
@@ -641,6 +677,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
     return () => {
       unsubscribe1?.();
       unsubscribe2?.();
+      unsubscribeReactions?.();
     };
   }, [roomId, type, url, user.id]);
 
@@ -746,9 +783,11 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
       if (sourceRef.current.paused) {
         await sourceRef.current.play();
         setIsPlaying(true);
+        announcements.hostResumed(user.name || "Host");
       } else {
         await sourceRef.current.pause();
         setIsPlaying(false);
+        announcements.hostPaused(user.name || "Host");
       }
       // Sync the new state immediately
       await batchedSync();
@@ -756,7 +795,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
       console.error("Error toggling play state:", err);
       setError("Failed to toggle play state");
     }
-  }, [type, batchedSync]);
+  }, [type, batchedSync, announcements, user.name]);
 
   const handleVolumeChange = useCallback((newVolume: number) => {
     if (!sourceRef.current) return;
@@ -858,7 +897,9 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
         className={`relative flex items-center justify-center rounded-xl ${
           isCustomFullscreen ? "w-full h-full" : "h-4/5 w-full bg-gray-500/5"
         }`}
-        onPointerDown={type === "host" ? async () => await togglePlay() : undefined}
+        onPointerDown={
+          type === "host" ? async () => await togglePlay() : undefined
+        }
       >
         {/* Video Element */}
         <VideoElement
@@ -871,6 +912,12 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
           setDuration={setDuration}
           setIsPlaying={setIsPlaying}
           type={type}
+        />
+
+        {/* Floating Reactions */}
+        <FloatingReactions
+          reactions={reactions}
+          currentVideoTime={currentTime}
         />
 
         {/* Custom controls overlay */}
@@ -889,6 +936,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
           showControls={showControls}
           isHost={type === "host"}
         />
+
       </div>
     </div>
   );

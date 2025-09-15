@@ -7,6 +7,8 @@ import { FC, useEffect, useRef, useState, useCallback } from "react";
 import { format } from "date-fns";
 import { getWebSocketService } from "@/lib/websocket";
 import { FormattedMessage, formatMessage } from "@/types/message";
+import { useTypingIndicator } from "@/hooks/useTypingIndicator";
+import { TypingIndicator } from "@/components/TypingIndicator";
 
 interface MessagesProps {
   initialMessages: DbMessage[];
@@ -28,6 +30,12 @@ const Messages: FC<MessagesProps> = ({
   const scrollDownRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<FormattedMessage[]>(() =>
     initialMessages.map(formatMessage).sort((a, b) => a.timestamp - b.timestamp)
+  );
+
+  // Use typing indicator hook for room chats
+  const { typingUsers, handleUserTyping, handleUserStoppedTyping } = useTypingIndicator(
+    roomId || chatId || "",
+    user.id
   );
 
   const messageHandler = useCallback((message: any) => {
@@ -53,8 +61,7 @@ const Messages: FC<MessagesProps> = ({
   };
 
   useEffect(() => {
-    let unsubscribe1: (() => void) | undefined;
-    let unsubscribe2: (() => void) | undefined;
+    let unsubscribes: (() => void)[] = [];
 
     // Set up subscriptions
     const setupSubscriptions = async () => {
@@ -63,36 +70,72 @@ const Messages: FC<MessagesProps> = ({
       if (roomId) {
         // Room message subscriptions
         const roomChannel = `room-${roomId}`;
-        unsubscribe1 = await wsService.subscribe(
+
+        const unsubMessage = await wsService.subscribe(
           roomChannel,
           "room_message",
           messageHandler
         );
+        unsubscribes.push(unsubMessage);
+
+        // Typing indicators for room
+        const unsubTyping = await wsService.subscribe(
+          roomChannel,
+          "user_typing",
+          handleUserTyping
+        );
+        unsubscribes.push(unsubTyping);
+
+        const unsubStoppedTyping = await wsService.subscribe(
+          roomChannel,
+          "user_stopped_typing",
+          handleUserStoppedTyping
+        );
+        unsubscribes.push(unsubStoppedTyping);
+
+
       } else if (chatId) {
         // Direct chat subscriptions
         const channelName = `chat:${chatId}:messages`;
         const userChannel = `user:${user.id}:chats`;
 
-        unsubscribe1 = await wsService.subscribe(
+        const unsubMessage1 = await wsService.subscribe(
           userChannel,
           "new_message",
           messageHandler
         );
-        unsubscribe2 = await wsService.subscribe(
+        unsubscribes.push(unsubMessage1);
+
+        const unsubMessage2 = await wsService.subscribe(
           channelName,
           "incoming_message",
           messageHandler
         );
+        unsubscribes.push(unsubMessage2);
+
+        // Typing indicators for direct chat
+        const unsubTyping = await wsService.subscribe(
+          channelName,
+          "user_typing",
+          handleUserTyping
+        );
+        unsubscribes.push(unsubTyping);
+
+        const unsubStoppedTyping = await wsService.subscribe(
+          channelName,
+          "user_stopped_typing",
+          handleUserStoppedTyping
+        );
+        unsubscribes.push(unsubStoppedTyping);
       }
     };
 
     void setupSubscriptions();
 
     return () => {
-      unsubscribe1?.();
-      unsubscribe2?.();
+      unsubscribes.forEach(unsub => unsub());
     };
-  }, [chatId, roomId, messageHandler, user.id]);
+  }, [chatId, roomId, messageHandler, user.id, handleUserTyping, handleUserStoppedTyping]);
 
   return (
     <div className="flex flex-col h-full">
@@ -214,6 +257,10 @@ const Messages: FC<MessagesProps> = ({
             </div>
           );
         })}
+
+        {/* Typing Indicator */}
+        <TypingIndicator typingUsers={typingUsers} />
+
         <div ref={scrollDownRef} />
       </div>
     </div>

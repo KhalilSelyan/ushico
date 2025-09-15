@@ -4,8 +4,16 @@ import { User } from "better-auth";
 import { FC, useRef, useState, useEffect } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import Button from "./ui/ButtonOld";
-import { getWebSocketService } from "@/lib/websocket";
+import {
+  getWebSocketService,
+  sendTypingIndicator,
+  sendStoppedTyping,
+} from "@/lib/websocket";
 import { formatDistanceToNow } from "date-fns";
+import { useTypingIndicator } from "@/hooks/useTypingIndicator";
+import { TypingIndicator } from "@/components/TypingIndicator";
+import { Announcements } from "@/components/Announcements";
+import { ReactionButtons } from "@/components/ReactionButtons";
 
 interface RoomMessage {
   id: string;
@@ -20,15 +28,29 @@ interface RoomChatProps {
   roomId: string;
   user: User;
   participants: (User & { role: string })[];
+  videoRef: React.RefObject<HTMLVideoElement>;
   className?: string;
 }
 
-const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) => {
+const RoomChat: FC<RoomChatProps> = ({
+  roomId,
+  user,
+  participants,
+  videoRef,
+  className,
+}) => {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [input, setInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Use typing indicator hook
+  const { typingUsers, handleUserTyping, handleUserStoppedTyping } =
+    useTypingIndicator(roomId, user.id);
 
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = () => {
@@ -39,16 +61,17 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
     scrollToBottom();
   }, [messages]);
 
-  // WebSocket subscription for room messages
+  // WebSocket subscription for room messages and other events
   useEffect(() => {
     if (!roomId || !user.id) return;
 
     const wsService = getWebSocketService(user.id);
     const channel = `room-${roomId}`;
-    let unsubscribe: (() => void) | undefined;
+    let unsubscribes: (() => void)[] = [];
 
     const setupSubscription = async () => {
-      unsubscribe = await wsService.subscribe(
+      // Messages
+      const unsubMessage = await wsService.subscribe(
         channel,
         "room_message",
         (data: any) => {
@@ -68,14 +91,46 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
           }
         }
       );
+      unsubscribes.push(unsubMessage);
+
+      // Typing indicators
+      const unsubTyping = await wsService.subscribe(
+        channel,
+        "user_typing",
+        handleUserTyping
+      );
+      unsubscribes.push(unsubTyping);
+
+      const unsubStoppedTyping = await wsService.subscribe(
+        channel,
+        "user_stopped_typing",
+        handleUserStoppedTyping
+      );
+      unsubscribes.push(unsubStoppedTyping);
+
+      // Announcements
+      const unsubAnnouncements = await wsService.subscribe(
+        channel,
+        "room_announcement",
+        (data: any) => {
+          setAnnouncements((prev) => [...prev, data]);
+          // Remove announcement after 5 seconds
+          setTimeout(() => {
+            setAnnouncements((prev) =>
+              prev.filter((a) => a.announcementId !== data.announcementId)
+            );
+          }, 5000);
+        }
+      );
+      unsubscribes.push(unsubAnnouncements);
     };
 
     void setupSubscription();
 
     return () => {
-      unsubscribe?.();
+      unsubscribes.forEach((unsub) => unsub());
     };
-  }, [roomId, user.id]);
+  }, [roomId, user.id, handleUserTyping, handleUserStoppedTyping]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -109,6 +164,15 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
 
       setInput("");
       textareaRef.current?.focus();
+
+      // Clear typing state when message is sent
+      if (isTyping) {
+        setIsTyping(false);
+        sendStoppedTyping(roomId, user.id, user.name || "");
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+      }
     } catch (error) {
       console.error("Error sending room message:", error);
     } finally {
@@ -117,24 +181,64 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
   };
 
   const getParticipantName = (senderId: string) => {
-    const participant = participants.find(p => p.id === senderId);
+    const participant = participants.find((p) => p.id === senderId);
     return participant?.name || "Unknown User";
   };
 
   const getParticipantImage = (senderId: string) => {
-    const participant = participants.find(p => p.id === senderId);
+    const participant = participants.find((p) => p.id === senderId);
     return participant?.image || "";
   };
 
   const isCurrentUser = (senderId: string) => senderId === user.id;
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+
+    // Send typing indicator
+    if (!isTyping && e.target.value.trim()) {
+      setIsTyping(true);
+      sendTypingIndicator(roomId, user.id, user.name || "");
+    }
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Send stopped typing after 1 second of no typing
+    if (e.target.value.trim()) {
+      typingTimeoutRef.current = setTimeout(() => {
+        setIsTyping(false);
+        sendStoppedTyping(roomId, user.id, user.name || "");
+      }, 1000);
+    } else if (isTyping) {
+      // If input is cleared, immediately stop typing
+      setIsTyping(false);
+      sendStoppedTyping(roomId, user.id, user.name || "");
+    }
+  };
+
   return (
-    <div className={`flex flex-col h-full bg-white border-l border-gray-200 ${className || ""}`}>
+    <div
+      className={`flex flex-col h-full bg-white border-l border-gray-200 ${
+        className || ""
+      }`}
+    >
       {/* Chat Header */}
       <div className="border-b border-gray-200 p-4">
         <h3 className="text-lg font-semibold text-gray-900">Room Chat</h3>
-        <p className="text-sm text-gray-500">{participants.length} participants</p>
+        <p className="text-sm text-gray-500">
+          {participants.length} participants
+        </p>
       </div>
+
+      {/* Announcements */}
+      {announcements.length > 0 && (
+        <div className="p-2 border-b">
+          <Announcements announcements={announcements} />
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -153,8 +257,14 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
               {/* Avatar */}
               <div className="flex-shrink-0">
                 <img
-                  src={message.senderImage || getParticipantImage(message.senderId) || ""}
-                  alt={message.senderName || getParticipantName(message.senderId)}
+                  src={
+                    message.senderImage ||
+                    getParticipantImage(message.senderId) ||
+                    ""
+                  }
+                  alt={
+                    message.senderName || getParticipantName(message.senderId)
+                  }
                   className="w-8 h-8 rounded-full"
                   referrerPolicy="no-referrer"
                 />
@@ -176,14 +286,17 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
                   >
                     {isCurrentUser(message.senderId)
                       ? "You"
-                      : message.senderName || getParticipantName(message.senderId)}
+                      : message.senderName ||
+                        getParticipantName(message.senderId)}
                   </span>
                   <span className="text-xs text-gray-500">
-                    {formatDistanceToNow(new Date(message.timestamp), { addSuffix: true })}
+                    {formatDistanceToNow(new Date(message.timestamp), {
+                      addSuffix: true,
+                    })}
                   </span>
                 </div>
                 <div
-                  className={`rounded-lg px-3 py-2 text-sm ${
+                  className={`rounded-lg px-3 py-2 text-sm break-all ${
                     isCurrentUser(message.senderId)
                       ? "bg-indigo-600 text-white"
                       : "bg-gray-100 text-gray-900"
@@ -195,7 +308,22 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
             </div>
           ))
         )}
+
+        {/* Typing Indicator */}
+        <TypingIndicator typingUsers={typingUsers} />
+
         <div ref={messagesEndRef} />
+      </div>
+
+      {/* Reaction Buttons */}
+      <div className="border-t border-gray-200 p-2">
+        <div className="flex justify-center">
+          <ReactionButtons
+            roomId={roomId}
+            videoRef={videoRef}
+            currentUser={user}
+          />
+        </div>
       </div>
 
       {/* Message Input */}
@@ -212,7 +340,7 @@ const RoomChat: FC<RoomChatProps> = ({ roomId, user, participants, className }) 
               }}
               rows={1}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               placeholder="Type a message..."
               className="block w-full resize-none border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
             />
