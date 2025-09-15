@@ -1,27 +1,39 @@
 "use client";
 
 import { Room } from "@/db/schema";
-import { Plus, Users, Play, Hash } from "lucide-react";
+import { Plus, Users, Play, Hash, Trash2, LogOut, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { useRouter } from "next/navigation";
+import { User } from "better-auth";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface UserRoomsSectionProps {
   rooms: Room[];
+  user: User;
   onCreateRoom: () => void;
   onJoinRoom: (roomId: string) => void;
+  onRoomsChange?: () => void;
 }
 
 export default function UserRoomsSection({
   rooms,
+  user,
   onCreateRoom,
   onJoinRoom,
+  onRoomsChange,
 }: UserRoomsSectionProps) {
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [isJoining, setIsJoining] = useState(false);
+  const [isLeaving, setIsLeaving] = useState<string | null>(null);
   const router = useRouter();
 
   const handleJoinByCode = async () => {
@@ -68,6 +80,52 @@ export default function UserRoomsSection({
       setShowJoinInput(false);
     }
   };
+
+  const handleLeaveRoom = async (roomId: string) => {
+    if (!confirm("Are you sure you want to leave this room?")) return;
+
+    setIsLeaving(roomId);
+    try {
+      const response = await fetch(`/api/rooms/${roomId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        onRoomsChange?.();
+      } else {
+        alert("Failed to leave room. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error leaving room:", error);
+      alert("Failed to leave room. Please try again.");
+    } finally {
+      setIsLeaving(null);
+    }
+  };
+
+  const handleDeactivateRoom = async (roomId: string) => {
+    if (!confirm("Are you sure you want to deactivate this room? This will end the watch party for all participants.")) return;
+
+    setIsLeaving(roomId);
+    try {
+      const response = await fetch(`/api/rooms/${roomId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        onRoomsChange?.();
+      } else {
+        alert("Failed to deactivate room. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error deactivating room:", error);
+      alert("Failed to deactivate room. Please try again.");
+    } finally {
+      setIsLeaving(null);
+    }
+  };
+
+  const isUserHost = (room: Room) => room.hostId === user.id;
 
   return (
     <Card>
@@ -165,6 +223,36 @@ export default function UserRoomsSection({
                   <Button size="sm" onClick={() => onJoinRoom(room.id)}>
                     Join
                   </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={isLeaving === room.id}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {isUserHost(room) ? (
+                        <DropdownMenuItem
+                          onClick={() => handleDeactivateRoom(room.id)}
+                          className="text-red-600 focus:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          End Watch Party
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem
+                          onClick={() => handleLeaveRoom(room.id)}
+                          className="text-red-600 focus:text-red-600"
+                        >
+                          <LogOut className="h-4 w-4 mr-2" />
+                          Leave Room
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             ))}

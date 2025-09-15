@@ -60,6 +60,11 @@ export default function DashboardClient({
     router.push(`/watch/room/${roomId}`);
   };
 
+  const handleRoomsChange = () => {
+    // Refresh to get updated room list
+    router.refresh();
+  };
+
   const handleInvitationResponse = async (
     invitationId: string,
     status: "accepted" | "declined"
@@ -102,8 +107,10 @@ export default function DashboardClient({
       {/* Watch Parties */}
       <UserRoomsSection
         rooms={rooms}
+        user={user}
         onCreateRoom={handleCreateRoom}
         onJoinRoom={handleJoinRoom}
+        onRoomsChange={handleRoomsChange}
       />
 
       {/* Recent Chats */}
