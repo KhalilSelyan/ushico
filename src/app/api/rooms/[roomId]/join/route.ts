@@ -1,5 +1,5 @@
 import { auth } from "@/auth/auth";
-import { joinRoom, getRoomById } from "@/db/queries";
+import { joinRoom, getRoomById, createRoomJoinRequest } from "@/db/queries";
 import { headers } from "next/headers";
 import { NextResponse } from 'next/server';
 import { z } from "zod";
@@ -10,10 +10,11 @@ export async function POST(
 ) {
   try {
     const body = await request.json();
-    const { method, roomCode } = z
+    const { method, roomCode, message } = z
       .object({
         method: z.enum(["request", "code"]),
         roomCode: z.string().optional(),
+        message: z.string().optional(),
       })
       .parse(body);
 
@@ -45,14 +46,18 @@ export async function POST(
           status: 400,
         });
       }
+      // Join the room immediately with valid code
+      await joinRoom(roomId, session.user.id);
     } else if (method === "request") {
-      // For now, auto-approve join requests
-      // In the future, this could require host approval
-      console.log(`User ${session.user.name} requested to join room ${roomData.name}`);
-    }
+      // Create a join request for host approval
+      await createRoomJoinRequest(roomId, session.user.id, message);
 
-    // Join the room
-    await joinRoom(roomId, session.user.id);
+      return NextResponse.json({
+        success: true,
+        message: "Join request sent. Waiting for host approval.",
+        requiresApproval: true,
+      });
+    }
 
     return NextResponse.json({
       success: true,

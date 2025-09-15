@@ -301,6 +301,7 @@ export const roomRelations = relations(room, ({ one, many }) => ({
   participants: many(roomParticipant),
   messages: many(roomMessage),
   invitations: many(roomInvitation),
+  joinRequests: many(roomJoinRequest),
 }));
 
 export const roomParticipantRelations = relations(roomParticipant, ({ one }) => ({
@@ -350,3 +351,32 @@ export type RoomMessage = typeof roomMessage.$inferSelect;
 export type NewRoomMessage = typeof roomMessage.$inferInsert;
 export type RoomInvitation = typeof roomInvitation.$inferSelect;
 export type NewRoomInvitation = typeof roomInvitation.$inferInsert;
+
+// Room join requests
+export const roomJoinRequest = creator("room_join_request", {
+  id: text("id").primaryKey(),
+  roomId: text("room_id")
+    .notNull()
+    .references(() => room.id, { onDelete: "cascade" }),
+  requesterId: text("requester_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"), // pending, approved, denied
+  message: text("message"), // Optional message from requester
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const roomJoinRequestRelations = relations(roomJoinRequest, ({ one }) => ({
+  room: one(room, {
+    fields: [roomJoinRequest.roomId],
+    references: [room.id],
+  }),
+  requester: one(user, {
+    fields: [roomJoinRequest.requesterId],
+    references: [user.id],
+  }),
+}));
+
+export type RoomJoinRequest = typeof roomJoinRequest.$inferSelect;
+export type NewRoomJoinRequest = typeof roomJoinRequest.$inferInsert;

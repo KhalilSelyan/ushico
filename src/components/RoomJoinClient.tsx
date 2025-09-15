@@ -27,8 +27,6 @@ export default function RoomJoinClient({ room, user }: RoomJoinClientProps) {
   const handleRequestJoin = async () => {
     setIsJoining(true);
     try {
-      // For now, we'll implement a simple request join
-      // In the future, this could send a notification to the host
       const response = await fetch(`/api/rooms/${room.id}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -36,7 +34,13 @@ export default function RoomJoinClient({ room, user }: RoomJoinClientProps) {
       });
 
       if (response.ok) {
-        router.push(`/watch/room/${room.id}`);
+        const data = await response.json();
+        if (data.requiresApproval) {
+          alert("Join request sent! The host will review your request.");
+          router.push("/dashboard");
+        } else {
+          router.push(`/watch/room/${room.id}`);
+        }
       } else {
         throw new Error("Failed to join room");
       }

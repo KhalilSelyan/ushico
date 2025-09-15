@@ -13,6 +13,7 @@ import {
   roomParticipant,
   roomMessage,
   roomInvitation,
+  roomJoinRequest,
   type Room,
   type NewRoom,
   type RoomParticipant,
@@ -21,6 +22,8 @@ import {
   type NewRoomMessage,
   type RoomInvitation,
   type NewRoomInvitation,
+  type RoomJoinRequest,
+  type NewRoomJoinRequest,
 } from "./schema";
 import type { Message, User } from "./schema";
 
@@ -676,4 +679,59 @@ export async function deactivateRoom(roomId: string): Promise<void> {
     .update(room)
     .set({ isActive: false, updatedAt: new Date() })
     .where(eq(room.id, roomId));
+}
+
+// Room join request functions
+export async function createRoomJoinRequest(
+  roomId: string,
+  requesterId: string,
+  message?: string
+): Promise<RoomJoinRequest> {
+  const [joinRequest] = await db
+    .insert(roomJoinRequest)
+    .values({
+      id: nanoid(),
+      roomId,
+      requesterId,
+      message,
+      status: "pending",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning();
+
+  return joinRequest;
+}
+
+export async function getRoomJoinRequests(roomId: string): Promise<(RoomJoinRequest & { requester: User })[]> {
+  const requests = await db.query.roomJoinRequest.findMany({
+    where: and(
+      eq(roomJoinRequest.roomId, roomId),
+      eq(roomJoinRequest.status, "pending")
+    ),
+    with: {
+      requester: true,
+    },
+    orderBy: (requests, { desc }) => [desc(requests.createdAt)],
+  });
+
+  return requests;
+}
+
+export async function respondToJoinRequest(
+  requestId: string,
+  status: "approved" | "denied"
+): Promise<void> {
+  await db
+    .update(roomJoinRequest)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(roomJoinRequest.id, requestId));
+}
+
+export async function getJoinRequestById(requestId: string): Promise<RoomJoinRequest | null> {
+  const request = await db.query.roomJoinRequest.findFirst({
+    where: eq(roomJoinRequest.id, requestId),
+  });
+
+  return request || null;
 }

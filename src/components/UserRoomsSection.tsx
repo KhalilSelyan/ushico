@@ -1,7 +1,7 @@
 "use client";
 
 import { Room } from "@/db/schema";
-import { Plus, Users, Play, Hash, Trash2, LogOut, MoreHorizontal } from "lucide-react";
+import { Plus, Users, Play, Hash, Trash2, LogOut, MoreHorizontal, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState } from "react";
@@ -235,13 +235,21 @@ export default function UserRoomsSection({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       {isUserHost(room) ? (
-                        <DropdownMenuItem
-                          onClick={() => handleDeactivateRoom(room.id)}
-                          className="text-red-600 focus:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          End Watch Party
-                        </DropdownMenuItem>
+                        <>
+                          <DropdownMenuItem
+                            onClick={() => router.push(`/dashboard/rooms/${room.id}/manage`)}
+                          >
+                            <Settings className="h-4 w-4 mr-2" />
+                            Manage Room
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDeactivateRoom(room.id)}
+                            className="text-red-600 focus:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            End Watch Party
+                          </DropdownMenuItem>
+                        </>
                       ) : (
                         <DropdownMenuItem
                           onClick={() => handleLeaveRoom(room.id)}
