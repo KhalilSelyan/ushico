@@ -414,6 +414,79 @@ export async function validateRoomAccess(roomId: string, userId: string): Promis
   return !!participant;
 }
 
+// Enhanced room access validation for hybrid joining
+export async function validateRoomAccessHybrid(roomId: string, userId: string): Promise<{
+  hasAccess: boolean;
+  reason?: "participant" | "pending_invitation" | "room_code" | "denied";
+  requiresApproval?: boolean;
+}> {
+  // Check if user is already a participant
+  const participant = await db.query.roomParticipant.findFirst({
+    where: and(
+      eq(roomParticipant.roomId, roomId),
+      eq(roomParticipant.userId, userId)
+    ),
+  });
+
+  if (participant) {
+    return { hasAccess: true, reason: "participant" };
+  }
+
+  // Check if user has pending invitation (auto-join)
+  const pendingInvitation = await db.query.roomInvitation.findFirst({
+    where: and(
+      eq(roomInvitation.roomId, roomId),
+      eq(roomInvitation.inviteeId, userId),
+      eq(roomInvitation.status, "pending")
+    ),
+  });
+
+  if (pendingInvitation) {
+    return { hasAccess: true, reason: "pending_invitation" };
+  }
+
+  // For room code access, we'll need to check if room allows public joining
+  // This will be handled in the join flow, not here
+  return { hasAccess: false, reason: "denied", requiresApproval: true };
+}
+
+// Auto-join room for invited users
+export async function autoJoinRoomFromInvitation(roomId: string, userId: string): Promise<boolean> {
+  return await db.transaction(async (tx) => {
+    // Find pending invitation
+    const invitation = await tx.query.roomInvitation.findFirst({
+      where: and(
+        eq(roomInvitation.roomId, roomId),
+        eq(roomInvitation.inviteeId, userId),
+        eq(roomInvitation.status, "pending")
+      ),
+    });
+
+    if (!invitation) {
+      return false;
+    }
+
+    // Add user as participant
+    await tx.insert(roomParticipant).values({
+      id: nanoid(),
+      roomId,
+      userId,
+      role: "viewer",
+    });
+
+    // Mark invitation as accepted
+    await tx
+      .update(roomInvitation)
+      .set({
+        status: "accepted",
+        updatedAt: new Date()
+      })
+      .where(eq(roomInvitation.id, invitation.id));
+
+    return true;
+  });
+}
+
 export async function isRoomHost(roomId: string, userId: string): Promise<boolean> {
   const roomData = await db.query.room.findFirst({
     where: and(eq(room.id, roomId), eq(room.hostId, userId)),

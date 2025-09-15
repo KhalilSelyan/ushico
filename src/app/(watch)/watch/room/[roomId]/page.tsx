@@ -1,9 +1,9 @@
 import { auth } from "@/auth/auth";
 import Header from "@/components/WatchHeader";
 import RoomWatchClient from "@/components/RoomWatchClient";
-import { getRoomById, validateRoomAccess } from "@/db/queries";
+import { getRoomById, validateRoomAccessHybrid, autoJoinRoomFromInvitation } from "@/db/queries";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 interface RoomWatchPageProps {
   params: { roomId: string };
@@ -20,10 +20,23 @@ export default async function RoomWatchPage({ params }: RoomWatchPageProps) {
     return null;
   }
 
-  // Validate user has access to room
-  const hasAccess = await validateRoomAccess(roomId, session.user.id);
-  if (!hasAccess) {
+  // Check room access with hybrid validation
+  const accessResult = await validateRoomAccessHybrid(roomId, session.user.id);
+
+  if (!accessResult.hasAccess) {
+    // If requires approval, redirect to join request page
+    if (accessResult.requiresApproval) {
+      redirect(`/watch/room/${roomId}/join`);
+    }
     notFound();
+  }
+
+  // Auto-join if user has pending invitation
+  if (accessResult.reason === "pending_invitation") {
+    const joined = await autoJoinRoomFromInvitation(roomId, session.user.id);
+    if (!joined) {
+      notFound();
+    }
   }
 
   // Fetch room data
