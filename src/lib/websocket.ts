@@ -40,6 +40,11 @@ export type WebSocketEvent =
   | "user_stopped_typing"      // User stopped typing
   | "video_reaction"           // Emoji reaction on video
   | "room_announcement"        // Activity announcements
+  // PRESENCE SYSTEM
+  | "user_presence_update"     // Update user's presence state
+  | "get_room_presence"        // Request current presence of all room participants
+  | "user_presence_updated"    // Broadcasted when someone's presence changes
+  | "room_presence_status"     // Response with all participants' presence states
 
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -378,6 +383,30 @@ export function sendRoomAnnouncement(
     message,
     timestamp: new Date().toISOString(),
     announcementId: `${Date.now()}-${type}`
+  });
+}
+
+// Presence System helper functions
+export function sendPresenceUpdate(
+  roomId: string,
+  userId: string,
+  userName: string,
+  presenceState: "active" | "away" | "offline"
+): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "user_presence_update", {
+    roomId,
+    userId,
+    userName,
+    presenceState,
+    timestamp: new Date().toISOString()
+  });
+}
+
+export function requestRoomPresence(roomId: string, userId: string): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "get_room_presence", {
+    roomId
   });
 }
 

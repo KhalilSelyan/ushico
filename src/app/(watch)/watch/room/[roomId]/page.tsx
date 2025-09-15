@@ -1,7 +1,7 @@
 import { auth } from "@/auth/auth";
-import Header from "@/components/WatchHeader";
 import RoomWatchClient from "@/components/RoomWatchClient";
 import { getRoomById, validateRoomAccessHybrid, autoJoinRoomFromInvitation } from "@/db/queries";
+import { getSpecificUserById } from "@/helpers/getfriendsbyid";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
@@ -58,19 +58,18 @@ export default async function RoomWatchPage({ params }: RoomWatchPageProps) {
     role: p.role,
   }));
 
+  // Get host user data
+  const hostUser = await getSpecificUserById(roomData.hostId);
+
   return (
     <div className="relative no-scrollbar flex h-full w-full flex-col">
-      <Header
-        userId={roomData.hostId}
-        roomName={roomData.name}
-        participantCount={participants.length}
-      />
       <RoomWatchClient
         roomId={roomId}
         userRole={userRole as "host" | "viewer"}
         participants={participants}
         user={session.user}
         room={roomData}
+        hostName={hostUser?.name || "Unknown Host"}
       />
     </div>
   );

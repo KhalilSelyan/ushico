@@ -5,8 +5,11 @@ import { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
 import RoomChat from "./RoomChat";
 import RoomInviteModal from "./RoomInviteModal";
+import WatchHeaderClient from "./WatchHeaderClient";
 import { MessageSquare, X, UserPlus } from "lucide-react";
 import { Room } from "@/db/schema";
+import { useUserPresence } from "@/hooks/useUserPresence";
+import { PresenceBadge } from "@/components/PresenceIndicator";
 
 interface RoomWatchClientProps {
   roomId: string;
@@ -14,6 +17,7 @@ interface RoomWatchClientProps {
   participants: (User & { role: string })[];
   user: User;
   room: Room;
+  hostName: string;
 }
 
 const RoomWatchClient = ({
@@ -22,11 +26,15 @@ const RoomWatchClient = ({
   participants,
   user,
   room,
+  hostName,
 }: RoomWatchClientProps) => {
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [friends, setFriends] = useState<User[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Initialize presence tracking
+  const { presence, currentState } = useUserPresence(roomId, user.id, user.name || "", participants);
 
   // Fetch user's friends for inviting
   useEffect(() => {
@@ -46,7 +54,15 @@ const RoomWatchClient = ({
   }, []);
 
   return (
-    <div className="flex flex-1 gap-4 p-4">
+    <div className="flex flex-1 flex-col">
+      <WatchHeaderClient
+        hostName={hostName}
+        roomName={room.name}
+        participantCount={participants.length}
+        participants={participants}
+        presence={presence}
+      />
+      <div className="flex flex-1 gap-4 p-4">
       {/* Video Player Section */}
       <div className="flex-1 min-w-0 relative">
         <VideoPlayer
@@ -132,6 +148,7 @@ const RoomWatchClient = ({
         isOpen={isInviteModalOpen}
         onClose={() => setIsInviteModalOpen(false)}
       />
+      </div>
     </div>
   );
 };
