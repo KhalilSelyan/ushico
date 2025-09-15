@@ -2,10 +2,10 @@
 import { User } from "better-auth";
 import { FC, useRef, useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
-import Button from "./ui/Button";
+import Button from "./ui/ButtonOld";
 import axios from "axios";
 import toast from "react-hot-toast";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 
 interface ChatInputProps {
   chatId: string;
@@ -33,6 +33,7 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
       }
 
       const messageData = response.data.messageData;
+      const wsService = getWebSocketService(user.id);
 
       // Send the message via WebSocket to chat channel
       await wsService.send(`chat:${chatId}:messages`, "incoming_message", {

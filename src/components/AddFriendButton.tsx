@@ -5,10 +5,10 @@ import axios, { AxiosError } from "axios";
 import { FC, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import Button from "./ui/Button";
+import Button from "./ui/ButtonOld";
 
 import { useSession } from "@/auth/auth-client";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 
 interface AddFriendButtonProps {}
 
@@ -40,6 +40,7 @@ const AddFriendButton: FC<AddFriendButtonProps> = ({}) => {
       if (session) {
         // Send WebSocket message to notify the receiver
         // Using the channel format: user:{userId}:incoming_friend_requests
+        const wsService = getWebSocketService(session.user.id);
         const channel = `user:${receiver.id}:incoming_friend_requests`;
         await wsService.send(channel, "incoming_friend_request", {
           senderId: session.user.id,

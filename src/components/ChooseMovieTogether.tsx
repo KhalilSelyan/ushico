@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { Icons } from "@/components/Icons";
-import Button from "@/components/ui/Button";
+import Button from "@/components/ui/ButtonOld";
 
 interface Movie {
   id: number;

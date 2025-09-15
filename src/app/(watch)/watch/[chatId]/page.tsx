@@ -1,7 +1,7 @@
 import { auth } from "@/auth/auth";
-import VideoPlayer from "@/components/VideoPlayer";
-import Header from "@/components/WatchHeader";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import LegacyWatchClient from "@/components/LegacyWatchClient";
 
 interface PageProps {
   params: {
@@ -15,20 +15,25 @@ const Page = async ({ params }: PageProps) => {
     headers: headers(),
   });
 
-  if (!session) return null;
+  if (!session) {
+    redirect("/auth/signin");
+  }
 
-  const [userId1, userId2] = chatId.split("--");
+  // Check if chatId is old format (user1--user2)
+  if (chatId.includes("--")) {
+    const [userId1, userId2] = chatId.split("--");
 
-  if (userId1 !== session.user.id && userId2 !== session.user.id) return null;
+    // Validate user access
+    if (userId1 !== session.user.id && userId2 !== session.user.id) {
+      redirect("/dashboard");
+    }
 
-  return (
-    <div className="relative no-scrollbar flex h-full w-full flex-col items-center">
-      <Header userId={userId1} />
-      <div className="w-full flex-1 px-2">
-        <VideoPlayer userId1={userId1} chatId={chatId} user={session.user} />
-      </div>
-    </div>
-  );
+    // Show migration modal
+    return <LegacyWatchClient chatId={chatId} user={session.user} />;
+  }
+
+  // If not old format, redirect to dashboard
+  redirect("/dashboard");
 };
 
 export default Page;

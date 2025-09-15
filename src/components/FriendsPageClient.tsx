@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { hrefChatConstructor } from "@/lib/utils";
 import RemoveFriendButton from "@/components/RemoveFriendButton";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 
@@ -20,12 +20,14 @@ interface FriendsPageClientProps {
     senderImage: string;
   }>;
   userId: string;
+  user: User;
 }
 
 const FriendsPageClient = ({
   initialFriends,
   initialFriendRequests,
   userId,
+  user,
 }: FriendsPageClientProps) => {
   const [friends, setFriends] = useState<User[]>(initialFriends);
   const [friendRequests, setFriendRequests] = useState(initialFriendRequests);
@@ -38,6 +40,8 @@ const FriendsPageClient = ({
     let unsubscribeRequests: (() => void) | undefined;
 
     const setupSubscriptions = async () => {
+      const wsService = getWebSocketService(user.id);
+
       // Subscribe to friend removal events
       unsubscribeFriends = await wsService.subscribe(
         friendsChannel,
@@ -81,6 +85,7 @@ const FriendsPageClient = ({
       );
 
       // Send WebSocket message to notify the sender
+      const wsService = getWebSocketService(user.id);
       await wsService.send(
         `user:${senderId}:friends`,
         "friend_request_accepted",
@@ -106,6 +111,7 @@ const FriendsPageClient = ({
       );
 
       // Send WebSocket message to notify the sender
+      const wsService = getWebSocketService(user.id);
       await wsService.send(
         `user:${senderId}:friends`,
         "friend_request_denied",

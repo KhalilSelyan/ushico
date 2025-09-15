@@ -2,7 +2,7 @@
 "use client";
 import { Message } from "@/db/schema";
 import { hrefChatConstructor } from "@/lib/utils";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 import { usePathname, useRouter } from "next/navigation";
 import { FC, useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
@@ -105,6 +105,7 @@ const SidebarChatList: FC<SidebarChatListProps> = ({ chats, userId }) => {
     let unsubscribeFriends: (() => void) | undefined;
 
     const setupSubscriptions = async () => {
+      const wsService = getWebSocketService(userId);
       unsubscribeChats = await wsService.subscribe(
         userChatsChannel,
         "new_message",

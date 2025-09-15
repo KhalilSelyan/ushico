@@ -5,7 +5,7 @@ import { UserMinus } from "lucide-react";
 import { FC } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 
 interface RemoveFriendButtonProps {
   friend: User;
@@ -23,6 +23,7 @@ const RemoveFriendButton: FC<RemoveFriendButtonProps> = ({
       });
 
       // Send WebSocket notification to the removed friend
+      const wsService = getWebSocketService(userId);
       await wsService.send(`user:${friend.id}:friends`, "friend_removed", {
         userId,
         timestamp: new Date().toISOString(),

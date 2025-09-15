@@ -16,7 +16,17 @@ export type WebSocketEvent =
   | "friend_removed"
   | "subscribe"
   | "unsubscribe"
-  | "sync";
+  | "sync"
+  // NEW ROOM EVENTS
+  | "create_room"
+  | "join_room"
+  | "leave_room"
+  | "host_sync"          // Replaces "sync" for rooms
+  | "room_message"
+  | "participant_joined"
+  | "participant_left"
+  | "host_transferred"
+  | "error_response";
 
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -29,9 +39,22 @@ class WebSocketService {
   private url: string;
   private connectionPromise: Promise<void> | null = null;
 
-  constructor(url?: string) {
+  constructor(url?: string, autoConnect: boolean = true) {
     this.url = url ?? process.env.NEXT_PUBLIC_WEBSOCKET_URL!;
-    this.connect();
+    if (autoConnect) {
+      this.connect();
+    }
+  }
+
+  public hasUserID(): boolean {
+    return this.url.includes('userID=');
+  }
+
+  public async connectManually(): Promise<void> {
+    if (!this.connectionPromise) {
+      return this.connect();
+    }
+    return this.connectionPromise;
   }
 
   private log(...args: any[]) {
@@ -43,6 +66,12 @@ class WebSocketService {
   private connect(): Promise<void> {
     if (this.connectionPromise) {
       return this.connectionPromise;
+    }
+
+    // Prevent connections without userID to avoid server errors
+    if (!this.hasUserID()) {
+      this.log("⚠️  Skipping connection - no userID provided. Use getWebSocketService(userID) for authenticated connections.");
+      return Promise.resolve();
     }
 
     this.connectionPromise = new Promise((resolve, reject) => {
@@ -114,6 +143,12 @@ class WebSocketService {
   }
 
   private handleReconnect() {
+    // Don't attempt reconnection if no userID (would fail anyway)
+    if (!this.hasUserID()) {
+      this.log("⚠️  Skipping reconnection - no userID provided.");
+      return;
+    }
+
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       this.reconnectTimeout *= 2; // Exponential backoff
@@ -215,5 +250,66 @@ class WebSocketService {
   }
 }
 
-// Create a singleton instance
-export const wsService = new WebSocketService();
+// Room-specific message types - matches server format
+export interface RoomSyncData {
+  timestamp: number;
+  url: string;
+  roomId: string;
+  state: "playing" | "paused";
+}
+
+// Server error response format
+export interface ErrorResponse {
+  error: string;
+  message: string;
+  code: string;
+}
+
+export interface RoomParticipantData {
+  userId: string;
+  userName: string;
+  role: "host" | "viewer";
+}
+
+export interface HostTransferData {
+  oldHostId: string;
+  newHostId: string;
+  newHostName: string;
+}
+
+// WebSocket service functions
+export function subscribeToRoom(roomId: string): void {
+  wsService.send(`room-${roomId}`, "subscribe", {});
+}
+
+export function sendHostSync(roomId: string, syncData: RoomSyncData): void {
+  wsService.send(`room-${roomId}`, "host_sync", syncData);
+}
+
+export function sendRoomMessage(roomId: string, text: string): void {
+  wsService.send(`room-${roomId}`, "room_message", { text, roomId });
+}
+
+// Connection setup with userID
+export function connectWithUserID(userID: string): WebSocketService {
+  const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL!;
+  const urlWithUserId = `${baseUrl}?userID=${userID}`;
+  return new WebSocketService(urlWithUserId);
+}
+
+// Create a singleton instance - will be replaced when user connects
+let _wsService: WebSocketService | null = null;
+
+export const getWebSocketService = (userID?: string): WebSocketService => {
+  if (!_wsService || (userID && !_wsService.hasUserID())) {
+    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL!;
+    const url = userID
+      ? `${baseUrl}?userID=${userID}`
+      : baseUrl;
+    _wsService = new WebSocketService(url);
+  }
+  return _wsService;
+};
+
+// Legacy export for backward compatibility - disabled auto-connect to prevent userID errors
+export const wsService = new WebSocketService(undefined, false);

@@ -103,7 +103,7 @@ const Layout = async ({ children }: LayoutProps) => {
                           {option.name === "Friends" && (
                             <FriendRequestBadge
                               initialUnseenRequestCount={unseenRequestCount}
-                              sessionId={session.user.id}
+                              userId={session.user.id}
                             />
                           )}
                         </Link>

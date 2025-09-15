@@ -5,14 +5,16 @@ import { Message as DbMessage } from "@/db/schema";
 import { User } from "better-auth";
 import { FC, useEffect, useRef, useState, useCallback } from "react";
 import { format } from "date-fns";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 import { FormattedMessage, formatMessage } from "@/types/message";
 
 interface MessagesProps {
   initialMessages: DbMessage[];
   user: User;
-  chatPartner: User;
-  chatId: string;
+  chatPartner?: User; // Optional for room messages
+  chatId?: string;    // Optional for room support
+  roomId?: string;    // Optional for room support
+  participants?: (User & { role: string })[]; // For room messages
 }
 
 const Messages: FC<MessagesProps> = ({
@@ -20,6 +22,8 @@ const Messages: FC<MessagesProps> = ({
   user,
   chatPartner,
   chatId,
+  roomId,
+  participants,
 }) => {
   const scrollDownRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<FormattedMessage[]>(() =>
@@ -49,24 +53,37 @@ const Messages: FC<MessagesProps> = ({
   };
 
   useEffect(() => {
-    const channelName = `chat:${chatId}:messages`;
-    const userChannel = `user:${user.id}:chats`;
-
     let unsubscribe1: (() => void) | undefined;
     let unsubscribe2: (() => void) | undefined;
 
     // Set up subscriptions
     const setupSubscriptions = async () => {
-      unsubscribe1 = await wsService.subscribe(
-        userChannel,
-        "new_message",
-        messageHandler
-      );
-      unsubscribe2 = await wsService.subscribe(
-        channelName,
-        "incoming_message",
-        messageHandler
-      );
+      const wsService = getWebSocketService(user.id);
+
+      if (roomId) {
+        // Room message subscriptions
+        const roomChannel = `room-${roomId}`;
+        unsubscribe1 = await wsService.subscribe(
+          roomChannel,
+          "room_message",
+          messageHandler
+        );
+      } else if (chatId) {
+        // Direct chat subscriptions
+        const channelName = `chat:${chatId}:messages`;
+        const userChannel = `user:${user.id}:chats`;
+
+        unsubscribe1 = await wsService.subscribe(
+          userChannel,
+          "new_message",
+          messageHandler
+        );
+        unsubscribe2 = await wsService.subscribe(
+          channelName,
+          "incoming_message",
+          messageHandler
+        );
+      }
     };
 
     void setupSubscriptions();
@@ -75,7 +92,7 @@ const Messages: FC<MessagesProps> = ({
       unsubscribe1?.();
       unsubscribe2?.();
     };
-  }, [chatId, messageHandler, user.id]);
+  }, [chatId, roomId, messageHandler, user.id]);
 
   return (
     <div className="flex flex-col h-full">
@@ -96,6 +113,26 @@ const Messages: FC<MessagesProps> = ({
             (messages[index - 1] &&
               messages[index - 1].timestamp - message.timestamp > 120000);
 
+          // Get sender info for room messages
+          const getSenderInfo = () => {
+            if (isCurrentUser) {
+              return { name: user.name, image: user.image };
+            }
+
+            if (roomId && participants) {
+              const sender = participants.find(p => p.id === message.senderId);
+              return { name: sender?.name || "Unknown", image: sender?.image };
+            }
+
+            if (chatPartner) {
+              return { name: chatPartner.name, image: chatPartner.image };
+            }
+
+            return { name: "Unknown", image: null };
+          };
+
+          const senderInfo = getSenderInfo();
+
           return (
             <div
               key={`${message.id}-${message.timestamp}`}
@@ -115,6 +152,13 @@ const Messages: FC<MessagesProps> = ({
                     }
                   )}
                 >
+                  {/* Show sender name for room messages when not current user */}
+                  {roomId && !isCurrentUser && !hasPrevMessageFromSameUser && (
+                    <span className="text-xs text-gray-500 px-2">
+                      {senderInfo.name}
+                    </span>
+                  )}
+
                   <span
                     className={cn("px-4 py-2 rounded-lg inline-block", {
                       "bg-indigo-600 text-white": isCurrentUser,
@@ -150,14 +194,18 @@ const Messages: FC<MessagesProps> = ({
                 >
                   <div className="relative">
                     <div className="relative h-6 w-6">
-                      <img
-                        src={isCurrentUser ? user.image! : chatPartner.image!}
-                        referrerPolicy="no-referrer"
-                        alt={`${
-                          isCurrentUser ? user.name : chatPartner.name
-                        }'s profile picture`}
-                        className="rounded-full object-cover"
-                      />
+                      {senderInfo.image ? (
+                        <img
+                          src={senderInfo.image}
+                          referrerPolicy="no-referrer"
+                          alt={`${senderInfo.name}'s profile picture`}
+                          className="rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="h-6 w-6 rounded-full bg-gray-400 flex items-center justify-center text-xs text-white">
+                          {senderInfo.name?.charAt(0).toUpperCase() || "?"}
+                        </div>
+                      )}
                     </div>
                     <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-500 border-2 border-white" />
                   </div>

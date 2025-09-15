@@ -27,6 +27,11 @@ export const userRelations = relations(user, ({ many }) => ({
   friends: many(friend, { relationName: "userFriends" }),
   friendOf: many(friend, { relationName: "friendOf" }),
   movieVotes: many(movieVote),
+  hostedRooms: many(room),
+  roomParticipations: many(roomParticipant),
+  roomMessages: many(roomMessage),
+  sentRoomInvitations: many(roomInvitation, { relationName: "sentRoomInvitations" }),
+  receivedRoomInvitations: many(roomInvitation, { relationName: "receivedRoomInvitations" }),
 }));
 
 export type User = typeof user.$inferSelect;
@@ -228,3 +233,120 @@ export const movieVoteRelations = relations(movieVote, ({ one }) => ({
 
 export type MovieVote = typeof movieVote.$inferSelect;
 export type NewMovieVote = typeof movieVote.$inferInsert;
+
+// Room table
+export const room = creator("room", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  hostId: text("host_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  isActive: boolean("is_active").notNull().default(true),
+  maxParticipants: text("max_participants").default("10"), // Optional limit
+  roomCode: text("room_code").unique(), // Optional invite code
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Room participants
+export const roomParticipant = creator("room_participant", {
+  id: text("id").primaryKey(),
+  roomId: text("room_id")
+    .notNull()
+    .references(() => room.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  role: text("role").notNull(), // "host" | "viewer"
+  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+});
+
+// Room messages (separate from direct messages)
+export const roomMessage = creator("room_message", {
+  id: text("id").primaryKey(),
+  roomId: text("room_id")
+    .notNull()
+    .references(() => room.id, { onDelete: "cascade" }),
+  senderId: text("sender_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  text: text("text").notNull(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Room invitations
+export const roomInvitation = creator("room_invitation", {
+  id: text("id").primaryKey(),
+  roomId: text("room_id")
+    .notNull()
+    .references(() => room.id, { onDelete: "cascade" }),
+  inviterId: text("inviter_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  inviteeId: text("invitee_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"), // pending, accepted, declined
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const roomRelations = relations(room, ({ one, many }) => ({
+  host: one(user, {
+    fields: [room.hostId],
+    references: [user.id],
+  }),
+  participants: many(roomParticipant),
+  messages: many(roomMessage),
+  invitations: many(roomInvitation),
+}));
+
+export const roomParticipantRelations = relations(roomParticipant, ({ one }) => ({
+  room: one(room, {
+    fields: [roomParticipant.roomId],
+    references: [room.id],
+  }),
+  user: one(user, {
+    fields: [roomParticipant.userId],
+    references: [user.id],
+  }),
+}));
+
+export const roomMessageRelations = relations(roomMessage, ({ one }) => ({
+  room: one(room, {
+    fields: [roomMessage.roomId],
+    references: [room.id],
+  }),
+  sender: one(user, {
+    fields: [roomMessage.senderId],
+    references: [user.id],
+  }),
+}));
+
+export const roomInvitationRelations = relations(roomInvitation, ({ one }) => ({
+  room: one(room, {
+    fields: [roomInvitation.roomId],
+    references: [room.id],
+  }),
+  inviter: one(user, {
+    fields: [roomInvitation.inviterId],
+    references: [user.id],
+    relationName: "sentRoomInvitations",
+  }),
+  invitee: one(user, {
+    fields: [roomInvitation.inviteeId],
+    references: [user.id],
+    relationName: "receivedRoomInvitations",
+  }),
+}));
+
+export type Room = typeof room.$inferSelect;
+export type NewRoom = typeof room.$inferInsert;
+export type RoomParticipant = typeof roomParticipant.$inferSelect;
+export type NewRoomParticipant = typeof roomParticipant.$inferInsert;
+export type RoomMessage = typeof roomMessage.$inferSelect;
+export type NewRoomMessage = typeof roomMessage.$inferInsert;
+export type RoomInvitation = typeof roomInvitation.$inferSelect;
+export type NewRoomInvitation = typeof roomInvitation.$inferInsert;

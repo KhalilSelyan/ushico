@@ -12,7 +12,7 @@ import ChatInput from "./ChatInput";
 import { Icons } from "./Icons";
 import Messages from "./Messages";
 import SignOutButton from "./SignoutButton";
-import Button, { buttonVariants } from "./ui/Button";
+import Button, { buttonVariants } from "./ui/ButtonOld";
 
 interface MobileChatWatchLayoutProps {
   chatId: string;

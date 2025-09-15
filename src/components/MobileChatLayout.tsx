@@ -120,7 +120,7 @@ const MobileChatLayout: FC<MobileChatLayoutProps> = ({
                             {option.name === "Friends" && (
                               <FriendRequestBadge
                                 initialUnseenRequestCount={unseenRequestCount}
-                                sessionId={session.user.id}
+                                userId={session.user.id}
                               />
                             )}
                           </Link>

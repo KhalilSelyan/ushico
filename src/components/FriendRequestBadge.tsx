@@ -1,29 +1,31 @@
 "use client";
 
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 import { FC, useEffect, useState } from "react";
 
 interface FriendRequestBadgeProps {
   initialUnseenRequestCount: number;
-  sessionId: string;
+  userId: string;
 }
 
 const FriendRequestBadge: FC<FriendRequestBadgeProps> = ({
   initialUnseenRequestCount,
-  sessionId,
+  userId,
 }) => {
   const [unseenRequestCount, setUnseenRequestCount] = useState<number>(
     initialUnseenRequestCount
   );
 
   useEffect(() => {
-    const incomingFriendRequestsChannel = `user:${sessionId}:incoming_friend_requests`;
-    const friendRequestDeniedChannel = `user:${sessionId}:friend_request_denied`;
-    const friendRequestAcceptedChannel = `user:${sessionId}:friend_request_accepted`;
+    const incomingFriendRequestsChannel = `user:${userId}:incoming_friend_requests`;
+    const friendRequestDeniedChannel = `user:${userId}:friend_request_denied`;
+    const friendRequestAcceptedChannel = `user:${userId}:friend_request_accepted`;
 
     let unsubscribeFunctions: (() => void)[] = [];
 
     const setupSubscriptions = async () => {
+      const wsService = getWebSocketService(userId);
+
       // Subscribe to new friend requests
       const unsubscribeFriendRequests = await wsService.subscribe(
         incomingFriendRequestsChannel,
@@ -64,7 +66,7 @@ const FriendRequestBadge: FC<FriendRequestBadgeProps> = ({
     return () => {
       unsubscribeFunctions.forEach((unsubscribe) => unsubscribe());
     };
-  }, [sessionId]);
+  }, [userId]);
 
   // Also update the initial count when it changes from props
   useEffect(() => {

@@ -12,23 +12,21 @@ import {
   VolumeX,
   Volume1,
 } from "lucide-react";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService, RoomSyncData, ErrorResponse } from "@/lib/websocket";
 
 /* Interfaces and types */
 
 interface VideoPlayerProps {
-  chatId: string;
+  roomId: string;           // Changed from chatId
+  userRole: "host" | "viewer";
+  participants: (User & { role: string })[];
   user: User;
-  userId1: string;
+  initialUrl?: string;
+  className?: string;
 }
 
-interface SyncData {
-  timestamp: number;
-  url: string;
-  chatId: string;
-  state: "playing" | "paused";
-  videoId?: string;
-}
+// Use the server-aligned interface from websocket.ts
+type SyncData = RoomSyncData;
 
 interface OptimizedSyncData {
   type: "url" | "time" | "state";
@@ -77,6 +75,7 @@ interface URLInputProps {
   updateUrl: (newUrl: string) => void;
   isSynced: boolean;
   showInterface: boolean;
+  isHost: boolean;
 }
 
 const URLInput: React.FC<URLInputProps> = ({
@@ -84,6 +83,7 @@ const URLInput: React.FC<URLInputProps> = ({
   updateUrl,
   isSynced,
   showInterface,
+  isHost,
 }) => {
   return (
     <>
@@ -92,19 +92,30 @@ const URLInput: React.FC<URLInputProps> = ({
           className={`flex w-full items-center justify-center space-x-4 divide-x-2 rounded-lg bg-zinc-400 p-2 md:w-2/3`}
         >
           <span className="ml-2 text-sm font-bold text-white">URL: </span>
-          <input
-            type="text"
-            autoComplete="off"
-            placeholder="Paste a url to an mp4 file"
-            className="h-full w-full border-none bg-transparent px-4 text-white placeholder:text-white focus:outline-none"
-            onChange={(e) => updateUrl(e.target.value)}
-            value={url || ""}
-          />
+          {isHost ? (
+            <input
+              type="text"
+              autoComplete="off"
+              placeholder="Paste a url to an mp4 file"
+              className="h-full w-full border-none bg-transparent px-4 text-white placeholder:text-white focus:outline-none"
+              onChange={(e) => updateUrl(e.target.value)}
+              value={url || ""}
+            />
+          ) : (
+            <div className="h-full w-full px-4 text-white">
+              {url || "No video selected by host"}
+            </div>
+          )}
           {!isSynced && (
             <span className="pl-2 text-xs font-bold text-yellow-200">
               Reconnecting...
             </span>
           )}
+        </div>
+      )}
+      {!isHost && showInterface && (
+        <div className="text-sm text-muted-foreground text-center">
+          Only the host can control video playback
         </div>
       )}
     </>
@@ -269,6 +280,7 @@ interface VideoControlsProps {
   toggleCustomFullscreen: () => void;
   isCustomFullscreen: boolean;
   showControls: boolean;
+  isHost: boolean;
 }
 
 const VideoControls: React.FC<VideoControlsProps> = ({
@@ -284,6 +296,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   toggleCustomFullscreen,
   isCustomFullscreen,
   showControls,
+  isHost,
 }) => {
   return (
     <div
@@ -309,8 +322,13 @@ const VideoControls: React.FC<VideoControlsProps> = ({
       <div className="flex items-center gap-4">
         {/* Play/Pause */}
         <button
-          onClick={togglePlay}
-          className="text-white hover:text-white/80 transition-colors"
+          onClick={isHost ? togglePlay : undefined}
+          className={`text-white transition-colors ${
+            isHost
+              ? "hover:text-white/80 cursor-pointer"
+              : "opacity-50 cursor-not-allowed"
+          }`}
+          disabled={!isHost}
         >
           {isPlaying ? (
             <Pause className="w-6 h-6" />
@@ -369,7 +387,10 @@ const VideoControls: React.FC<VideoControlsProps> = ({
 
 /* Main VideoPlayer Component */
 
-const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
+const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, className }: VideoPlayerProps) => {
+  // Initialize WebSocket service with userID
+  const wsService = getWebSocketService(user.id);
+
   // State variables and refs
   const [type, setType] = useState<"host" | "watcher">("watcher");
   const [url, setUrl] = useState("");
@@ -405,8 +426,43 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
   const CONTROLS_HIDE_DELAY = 2000;
 
   useEffect(() => {
-    setType(user?.id === userId1 ? "host" : "watcher");
-  }, [user, userId1]);
+    setType(userRole === "host" ? "host" : "watcher");
+    if (initialUrl) {
+      setUrl(initialUrl);
+    }
+  }, [userRole, initialUrl]);
+
+  // Sync room state with WebSocket server when component mounts
+  useEffect(() => {
+    if (!roomId || !user.id || !userRole) return;
+
+    const syncRoomState = async () => {
+      try {
+        if (userRole === "host") {
+          // Tell WebSocket server about existing room and establish host permissions
+          await wsService.send(`room-${roomId}`, "sync_room_state", {
+            roomId,
+            hostId: user.id,
+            participants: participants.map(p => ({
+              userId: p.id,
+              role: p.role
+            }))
+          });
+        } else {
+          // Join existing room as viewer
+          await wsService.send(`room-${roomId}`, "join_room", {
+            roomId,
+            userId: user.id
+          });
+        }
+      } catch (error) {
+        console.error("Failed to sync room state:", error);
+        setError("Failed to establish room connection");
+      }
+    };
+
+    void syncRoomState();
+  }, [roomId, user.id, userRole, participants]);
 
   // Sync video state to server
   const batchedSync = useCallback(async () => {
@@ -449,20 +505,22 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
 
     // Send all updates in one message if there are any
     if (updates.length > 0) {
-      await wsService.send(`sync-${chatId}`, "sync", {
-        ...updates[0],
-        videoId: currentVideoId,
-      });
+      const syncData: RoomSyncData = {
+        timestamp: sourceRef.current.currentTime,
+        url: url,
+        roomId: roomId,
+        state: currentState,
+      };
+      await wsService.send(`room-${roomId}`, "host_sync", syncData);
     }
 
     lastKnownState.current = {
       url,
       timestamp: sourceRef.current.currentTime,
       state: currentState,
-      chatId,
-      videoId: currentVideoId,
+      roomId,
     };
-  }, [chatId, url, type, currentVideoId]);
+  }, [roomId, url, type]);
 
   // Update URL and sync with server
   const updateUrl = useCallback(
@@ -499,13 +557,15 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
 
   // Subscribe to sync messages
   useEffect(() => {
-    if (!chatId || !user.id) return;
+    if (!roomId || !user.id) return;
 
-    const channel = `sync-${chatId}`;
-    let unsubscribe: (() => void) | undefined;
+    const channel = `room-${roomId}`;
+    let unsubscribe1: (() => void) | undefined;
+    let unsubscribe2: (() => void) | undefined;
 
     const setupSubscription = async () => {
-      unsubscribe = await wsService.subscribe(channel, "sync", (data) => {
+      // Subscribe to sync events
+      unsubscribe1 = await wsService.subscribe(channel, "host_sync", (data) => {
         const now = Date.now();
         const messageDelay = now - lastMessageTime.current;
         lastMessageTime.current = now;
@@ -563,14 +623,25 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
 
         void syncActions();
       });
+
+      // Subscribe to error responses
+      unsubscribe2 = await wsService.subscribe(channel, "error_response", (errorData: ErrorResponse) => {
+        console.error("WebSocket error:", errorData);
+        setError(`${errorData.error}: ${errorData.message}`);
+        setIsSynced(false);
+      });
+
+      // Note: participant_joined, participant_left, host_transferred events
+      // would be handled by parent components that manage participant lists
     };
 
     void setupSubscription();
 
     return () => {
-      unsubscribe?.();
+      unsubscribe1?.();
+      unsubscribe2?.();
     };
-  }, [chatId, type, url, user.id, currentVideoId]);
+  }, [roomId, type, url, user.id]);
 
   // Periodic sync effect
   useEffect(() => {
@@ -739,7 +810,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         isCustomFullscreen
           ? "fixed md:absolute inset-0 z-50 bg-black p-4"
           : "relative"
-      }`}
+      } ${className || ""}`}
       onMouseMove={() => {
         setShowControls(true);
         setIsHovering(true);
@@ -754,14 +825,31 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         isCustomFullscreen={isCustomFullscreen}
       />
 
-      {/* URL input for host */}
-      {type === "host" && (
-        <URLInput
-          url={url}
-          updateUrl={updateUrl}
-          isSynced={isSynced}
-          showInterface={showInterface}
-        />
+      {/* URL input */}
+      <URLInput
+        url={url}
+        updateUrl={updateUrl}
+        isSynced={isSynced}
+        showInterface={showInterface}
+        isHost={type === "host"}
+      />
+
+      {/* Participants */}
+      {showInterface && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Watching with:</span>
+          {participants.map((participant, index) => (
+            <span key={participant.id} className="flex items-center gap-1">
+              {participant.name}
+              {participant.role === "host" && (
+                <span className="text-xs bg-primary text-primary-foreground px-1 rounded">
+                  HOST
+                </span>
+              )}
+              {index < participants.length - 1 && ","}
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Video container */}
@@ -769,7 +857,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
         className={`relative flex items-center justify-center rounded-xl ${
           isCustomFullscreen ? "w-full h-full" : "h-4/5 w-full bg-gray-500/5"
         }`}
-        onPointerDown={async () => await togglePlay()}
+        onPointerDown={type === "host" ? async () => await togglePlay() : undefined}
       >
         {/* Video Element */}
         <VideoElement
@@ -798,6 +886,7 @@ const VideoPlayer = ({ chatId, user, userId1 }: VideoPlayerProps) => {
           toggleCustomFullscreen={toggleCustomFullscreen}
           isCustomFullscreen={isCustomFullscreen}
           showControls={showControls}
+          isHost={type === "host"}
         />
       </div>
     </div>

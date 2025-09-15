@@ -1,7 +1,7 @@
 "use client";
 import { signIn } from "@/auth/auth-client";
 import { Icons } from "@/components/Icons";
-import Button from "@/components/ui/Button";
+import Button from "@/components/ui/ButtonOld";
 import { FC, useState } from "react";
 import toast from "react-hot-toast";
 

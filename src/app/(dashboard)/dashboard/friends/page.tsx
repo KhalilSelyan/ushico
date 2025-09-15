@@ -44,6 +44,7 @@ export default async function FriendsPage() {
       initialFriends={initialFriends}
       initialFriendRequests={transformedFriendRequests}
       userId={session.user.id}
+      user={session.user}
     />
   );
 }

@@ -5,7 +5,7 @@ import { Loader2, LogOut } from "lucide-react";
 import { signOut } from "@/auth/auth-client";
 import { ButtonHTMLAttributes, FC, useState } from "react";
 import { toast } from "react-hot-toast";
-import Button from "./ui/Button";
+import Button from "./ui/ButtonOld";
 
 interface SignOutButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {}
 
