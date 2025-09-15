@@ -57,7 +57,7 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
       // Clear typing state when message is sent
       if (isTyping) {
         setIsTyping(false);
-        sendStoppedTyping(chatId, user.id, user.name || "");
+        sendStoppedTyping(chatId, user.id, user.name || "", user.image || "");
         if (typingTimeoutRef.current) {
           clearTimeout(typingTimeoutRef.current);
         }
@@ -76,7 +76,7 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
     // Send typing indicator
     if (!isTyping && e.target.value.trim()) {
       setIsTyping(true);
-      sendTypingIndicator(chatId, user.id, user.name || "");
+      sendTypingIndicator(chatId, user.id, user.name || "", user.image || "");
     }
 
     // Clear existing timeout
@@ -88,12 +88,12 @@ const ChatInput: FC<ChatInputProps> = ({ chatId, chatPartner, user }) => {
     if (e.target.value.trim()) {
       typingTimeoutRef.current = setTimeout(() => {
         setIsTyping(false);
-        sendStoppedTyping(chatId, user.id, user.name || "");
+        sendStoppedTyping(chatId, user.id, user.name || "", user.image || "");
       }, 1000);
     } else if (isTyping) {
       // If input is cleared, immediately stop typing
       setIsTyping(false);
-      sendStoppedTyping(chatId, user.id, user.name || "");
+      sendStoppedTyping(chatId, user.id, user.name || "", user.image || "");
     }
   };
 

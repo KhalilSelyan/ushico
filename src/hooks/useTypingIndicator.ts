@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 interface TypingUser {
   userId: string;
   userName: string;
+  userImage?: string;
 }
 
 export function useTypingIndicator(roomId: string, currentUserId: string) {

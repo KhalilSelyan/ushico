@@ -326,21 +326,23 @@ export const getWebSocketService = (userID?: string): WebSocketService => {
 };
 
 // UX Features helper functions
-export function sendTypingIndicator(roomId: string, userId: string, userName: string): void {
+export function sendTypingIndicator(roomId: string, userId: string, userName: string, userImage?: string): void {
   const wsService = getWebSocketService(userId);
   wsService.send(`room-${roomId}`, "user_typing", {
     roomId,
     userId,
-    userName
+    userName,
+    userImage
   });
 }
 
-export function sendStoppedTyping(roomId: string, userId: string, userName: string): void {
+export function sendStoppedTyping(roomId: string, userId: string, userName: string, userImage?: string): void {
   const wsService = getWebSocketService(userId);
   wsService.send(`room-${roomId}`, "user_stopped_typing", {
     roomId,
     userId,
-    userName
+    userName,
+    userImage
   });
 }
 

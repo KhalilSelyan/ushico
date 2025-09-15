@@ -168,7 +168,7 @@ const RoomChat: FC<RoomChatProps> = ({
       // Clear typing state when message is sent
       if (isTyping) {
         setIsTyping(false);
-        sendStoppedTyping(roomId, user.id, user.name || "");
+        sendStoppedTyping(roomId, user.id, user.name || "", user.image || "");
         if (typingTimeoutRef.current) {
           clearTimeout(typingTimeoutRef.current);
         }
@@ -198,7 +198,7 @@ const RoomChat: FC<RoomChatProps> = ({
     // Send typing indicator
     if (!isTyping && e.target.value.trim()) {
       setIsTyping(true);
-      sendTypingIndicator(roomId, user.id, user.name || "");
+      sendTypingIndicator(roomId, user.id, user.name || "", user.image || "");
     }
 
     // Clear existing timeout
@@ -210,12 +210,12 @@ const RoomChat: FC<RoomChatProps> = ({
     if (e.target.value.trim()) {
       typingTimeoutRef.current = setTimeout(() => {
         setIsTyping(false);
-        sendStoppedTyping(roomId, user.id, user.name || "");
+        sendStoppedTyping(roomId, user.id, user.name || "", user.image || "");
       }, 1000);
     } else if (isTyping) {
       // If input is cleared, immediately stop typing
       setIsTyping(false);
-      sendStoppedTyping(roomId, user.id, user.name || "");
+      sendStoppedTyping(roomId, user.id, user.name || "", user.image || "");
     }
   };
 
