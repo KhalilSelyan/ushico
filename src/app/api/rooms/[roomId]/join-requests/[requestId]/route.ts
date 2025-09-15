@@ -3,11 +3,14 @@ import {
   getJoinRequestById,
   respondToJoinRequest,
   joinRoom,
-  isRoomHost
+  isRoomHost,
+  getRoomById,
+  getUserById
 } from "@/db/queries";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getWebSocketService } from "@/lib/websocket";
 
 export async function POST(
   request: Request,
@@ -54,6 +57,30 @@ export async function POST(
     // If approved, add user to room
     if (action === "approve") {
       await joinRoom(roomId, joinRequest.requesterId);
+    }
+
+    // Send WebSocket notification to requester
+    try {
+      const [roomData, requesterData] = await Promise.all([
+        getRoomById(roomId),
+        getUserById(joinRequest.requesterId)
+      ]);
+
+      if (roomData && requesterData) {
+        const wsService = getWebSocketService(session.user.id);
+        const notificationData = {
+          roomId: roomId,
+          roomName: roomData.name,
+          hostName: session.user.name,
+          action: action,
+          timestamp: new Date().toISOString()
+        };
+
+        const eventType = action === "approve" ? "join_request_approved" : "join_request_denied";
+        await wsService.send(`user-${joinRequest.requesterId}`, eventType, notificationData);
+      }
+    } catch (error) {
+      console.error("Failed to send WebSocket notification:", error);
     }
 
     return NextResponse.json({

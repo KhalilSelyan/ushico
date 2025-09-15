@@ -50,12 +50,23 @@ export async function POST(
       await joinRoom(roomId, session.user.id);
     } else if (method === "request") {
       // Create a join request for host approval
-      await createRoomJoinRequest(roomId, session.user.id, message);
+      const joinRequest = await createRoomJoinRequest(roomId, session.user.id, message);
 
       return NextResponse.json({
         success: true,
         message: "Join request sent. Waiting for host approval.",
         requiresApproval: true,
+        joinRequest: {
+          id: joinRequest.id,
+          roomId: roomId,
+          roomName: roomData.name,
+          requesterName: session.user.name,
+          requesterImage: session.user.image,
+          requesterId: session.user.id,
+          hostId: roomData.hostId,
+          message: message,
+          timestamp: joinRequest.createdAt
+        }
       });
     }
 

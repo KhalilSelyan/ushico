@@ -27,7 +27,14 @@ export type WebSocketEvent =
   | "participant_joined"
   | "participant_left"
   | "host_transferred"
-  | "error_response";
+  | "error_response"
+  // NEW NOTIFICATION EVENTS
+  | "room_join_request"        // Someone requested to join your room
+  | "join_request_approved"    // Your join request was approved
+  | "join_request_denied"      // Your join request was denied
+  | "room_invitation"          // You've been invited to a room
+  | "room_deactivated"         // Room was ended by host
+  | "participant_kicked"       // You were removed from room
 
 class WebSocketService {
   private ws: WebSocket | null = null;

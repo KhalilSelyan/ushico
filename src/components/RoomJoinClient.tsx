@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Users, Video, Clock, Key } from "lucide-react";
+import { getWebSocketService } from "@/lib/websocket";
 
 interface RoomJoinClientProps {
   room: Room & {
@@ -35,7 +36,15 @@ export default function RoomJoinClient({ room, user }: RoomJoinClientProps) {
 
       if (response.ok) {
         const data = await response.json();
-        if (data.requiresApproval) {
+        if (data.requiresApproval && data.joinRequest) {
+          // Send WebSocket notification to host
+          try {
+            const wsService = getWebSocketService(user.id);
+            await wsService.send(`user-${data.joinRequest.hostId}`, "room_join_request", data.joinRequest);
+          } catch (error) {
+            console.error("Failed to send WebSocket notification:", error);
+          }
+
           alert("Join request sent! The host will review your request.");
           router.push("/dashboard");
         } else {

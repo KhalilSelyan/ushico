@@ -11,6 +11,7 @@ import Link from "next/link";
 import UserRoomsSection from "@/components/UserRoomsSection";
 import RoomInvitationsSection from "@/components/RoomInvitationsSection";
 import CreateRoomModal from "@/components/CreateRoomModal";
+import { getWebSocketService } from "@/lib/websocket";
 
 type FriendWithLastMessage = User & {
   lastMessage: Message | null;
@@ -36,7 +37,7 @@ export default function DashboardClient({
   const [invitations, setInvitations] = useState(initialInvitations);
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
 
-  // Check for migration query parameter
+  // Check for migration query parameter and set up WebSocket listeners
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const migrateChatId = searchParams.get("migrate");
@@ -45,7 +46,47 @@ export default function DashboardClient({
       // Show migration modal or automatically migrate
       setIsCreateRoomModalOpen(true);
     }
-  }, []);
+
+    // Set up WebSocket listeners for join request responses
+    const wsService = getWebSocketService(user.id);
+
+    const unsubscribeApproved = wsService.subscribe(
+      `user-${user.id}`,
+      "join_request_approved",
+      (data: any) => {
+        // Show success notification and optionally redirect to room
+        console.log("Join request approved:", data);
+        router.push(`/watch/room/${data.roomId}`);
+      }
+    );
+
+    const unsubscribeDenied = wsService.subscribe(
+      `user-${user.id}`,
+      "join_request_denied",
+      (data: any) => {
+        // Show denial notification
+        console.log("Join request denied:", data);
+      }
+    );
+
+    const unsubscribeInvitation = wsService.subscribe(
+      `user-${user.id}`,
+      "room_invitation",
+      (data: any) => {
+        // Add invitation to list
+        console.log("Room invitation received:", data);
+        router.refresh(); // Refresh to show new invitation
+      }
+    );
+
+    return () => {
+      Promise.all([
+        unsubscribeApproved.then(unsub => unsub()),
+        unsubscribeDenied.then(unsub => unsub()),
+        unsubscribeInvitation.then(unsub => unsub())
+      ]);
+    };
+  }, [user.id, router]);
 
   const handleCreateRoom = () => {
     setIsCreateRoomModalOpen(true);

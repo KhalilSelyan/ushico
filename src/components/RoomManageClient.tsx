@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Users, UserCheck, UserX, Clock, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
+import { getWebSocketService } from "@/lib/websocket";
 
 interface RoomManageClientProps {
   room: Room;
@@ -26,7 +27,37 @@ export default function RoomManageClient({ room, user }: RoomManageClientProps) 
 
   useEffect(() => {
     fetchJoinRequests();
-  }, [room.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Set up WebSocket listener for new join requests
+    const wsService = getWebSocketService(user.id);
+    const unsubscribe = wsService.subscribe(
+      `user-${user.id}`,
+      "room_join_request",
+      (data: any) => {
+        if (data.roomId === room.id) {
+          // Add new join request to the list
+          setJoinRequests(prev => [...prev, {
+            id: data.id,
+            roomId: data.roomId,
+            requesterId: data.requesterId,
+            message: data.message,
+            status: "pending" as const,
+            createdAt: data.timestamp,
+            requester: {
+              id: data.requesterId,
+              name: data.requesterName,
+              image: data.requesterImage,
+              email: ""
+            }
+          }]);
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe.then(unsub => unsub());
+    };
+  }, [room.id, user.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchJoinRequests = async () => {
     try {
