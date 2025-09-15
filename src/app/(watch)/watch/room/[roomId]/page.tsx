@@ -56,6 +56,7 @@ export default async function RoomWatchPage({ params }: RoomWatchPageProps) {
         userRole={userRole as "host" | "viewer"}
         participants={participants}
         user={session.user}
+        room={roomData}
       />
     </div>
   );

@@ -1,16 +1,19 @@
 "use client";
 
 import { User } from "better-auth";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import VideoPlayer from "./VideoPlayer";
 import RoomChat from "./RoomChat";
-import { MessageSquare, X } from "lucide-react";
+import RoomInviteModal from "./RoomInviteModal";
+import { MessageSquare, X, UserPlus } from "lucide-react";
+import { Room } from "@/db/schema";
 
 interface RoomWatchClientProps {
   roomId: string;
   userRole: "host" | "viewer";
   participants: (User & { role: string })[];
   user: User;
+  room: Room;
 }
 
 const RoomWatchClient = ({
@@ -18,8 +21,28 @@ const RoomWatchClient = ({
   userRole,
   participants,
   user,
+  room,
 }: RoomWatchClientProps) => {
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [friends, setFriends] = useState<User[]>([]);
+
+  // Fetch user's friends for inviting
+  useEffect(() => {
+    const fetchFriends = async () => {
+      try {
+        const response = await fetch("/api/friends/list");
+        if (response.ok) {
+          const data = await response.json();
+          setFriends(data.friends || []);
+        }
+      } catch (error) {
+        console.error("Failed to fetch friends:", error);
+      }
+    };
+
+    void fetchFriends();
+  }, []);
 
   return (
     <div className="flex flex-1 gap-4 p-4">
@@ -42,6 +65,24 @@ const RoomWatchClient = ({
           ) : (
             <MessageSquare className="w-6 h-6" />
           )}
+        </button>
+
+        {/* Invite Button - Desktop */}
+        <button
+          onClick={() => setIsInviteModalOpen(true)}
+          className="hidden lg:block absolute top-4 right-4 bg-green-600 hover:bg-green-700 text-white p-3 rounded-full shadow-lg z-10 transition-colors"
+          title="Invite friends"
+        >
+          <UserPlus className="w-5 h-5" />
+        </button>
+
+        {/* Invite Button - Mobile */}
+        <button
+          onClick={() => setIsInviteModalOpen(true)}
+          className="lg:hidden absolute bottom-20 right-4 bg-green-600 hover:bg-green-700 text-white p-3 rounded-full shadow-lg z-10 transition-colors"
+          title="Invite friends"
+        >
+          <UserPlus className="w-5 h-5" />
         </button>
       </div>
 
@@ -79,6 +120,14 @@ const RoomWatchClient = ({
           </div>
         </div>
       )}
+
+      {/* Invite Modal */}
+      <RoomInviteModal
+        room={room}
+        friends={friends}
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
+      />
     </div>
   );
 };
