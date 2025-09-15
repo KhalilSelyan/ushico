@@ -33,13 +33,17 @@ export default function RoomInviteModal({
   const [copied, setCopied] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState(false);
 
-  const roomLink = `${window.location.origin}/watch/room/${room.id}`;
+  const roomLink = typeof window !== 'undefined'
+    ? `${window.location.origin}/watch/room/${room.id}`
+    : `/watch/room/${room.id}`;
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(roomLink);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (typeof window !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(roomLink);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
     } catch (error) {
       console.error("Failed to copy link:", error);
     }
