@@ -30,17 +30,34 @@ export default function UserRoomsSection({
     setIsJoining(true);
     try {
       // First, find the room by code
-      const response = await fetch(`/api/rooms/find-by-code`, {
+      const findResponse = await fetch(`/api/rooms/find-by-code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: roomCode.trim().toUpperCase() }),
       });
 
-      if (response.ok) {
-        const { roomId } = await response.json();
+      if (!findResponse.ok) {
+        alert("Room not found. Please check the code and try again.");
+        return;
+      }
+
+      const { roomId } = await findResponse.json();
+
+      // Now join the room using the room code method
+      const joinResponse = await fetch(`/api/rooms/${roomId}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: "code",
+          roomCode: roomCode.trim().toUpperCase(),
+        }),
+      });
+
+      if (joinResponse.ok) {
+        // Successfully joined, navigate to room
         router.push(`/watch/room/${roomId}`);
       } else {
-        alert("Room not found. Please check the code and try again.");
+        alert("Failed to join room. Please try again.");
       }
     } catch (error) {
       console.error("Error joining room:", error);
