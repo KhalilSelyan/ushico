@@ -40,7 +40,7 @@ const FriendsPageClient = ({
     let unsubscribeRequests: (() => void) | undefined;
 
     const setupSubscriptions = async () => {
-      const wsService = getWebSocketService(user.id);
+      const wsService = getWebSocketService(userId);
 
       // Subscribe to friend removal events
       unsubscribeFriends = await wsService.subscribe(

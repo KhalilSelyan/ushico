@@ -5,7 +5,7 @@ import type { Session, User } from "better-auth";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Icons } from "@/components/Icons";
-import Button from "@/components/ui/ButtonOld";
+import { Button } from "@/components/ui/button";
 
 interface Movie {
   id: number;

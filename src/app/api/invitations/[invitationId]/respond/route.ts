@@ -30,9 +30,14 @@ export async function POST(
     // Respond to invitation
     await respondToRoomInvitation(invitationId, status);
 
-    return Response.json({
+    return new Response(JSON.stringify({
       success: true,
       status,
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
