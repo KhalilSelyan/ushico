@@ -13,6 +13,7 @@ import {
   Volume1,
 } from "lucide-react";
 import { getWebSocketService, RoomSyncData, ErrorResponse } from "@/lib/websocket";
+import { nanoid } from "nanoid";
 
 /* Interfaces and types */
 
@@ -510,6 +511,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
         url: url,
         roomId: roomId,
         state: currentState,
+        videoId: currentVideoId,
       };
       await wsService.send(`room-${roomId}`, "host_sync", syncData);
     }
@@ -519,6 +521,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
       timestamp: sourceRef.current.currentTime,
       state: currentState,
       roomId,
+      videoId: currentVideoId,
     };
   }, [roomId, url, type]);
 
@@ -538,9 +541,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
         }
 
         new URL(newUrl); // Basic URL validation
-        const newVideoId = `${Date.now()}-${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
+        const newVideoId = nanoid();
         setCurrentVideoId(newVideoId);
         lastKnownUrl.current = newUrl;
         setUrl(newUrl);
@@ -587,7 +588,7 @@ const VideoPlayer = ({ roomId, userRole, participants, user, initialUrl, classNa
         if (syncData.url && syncData.url !== lastKnownUrl.current) {
           lastKnownUrl.current = syncData.url;
           setUrl(syncData.url);
-          setCurrentVideoId(syncData.videoId || "");
+          setCurrentVideoId(syncData.videoId);
           return;
         }
 

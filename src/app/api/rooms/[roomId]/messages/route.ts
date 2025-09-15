@@ -1,6 +1,11 @@
 import { auth } from "@/auth/auth";
-import { getRoomMessages, sendRoomMessage, validateRoomAccess } from "@/db/queries";
+import {
+  getRoomMessages,
+  sendRoomMessage,
+  validateRoomAccess,
+} from "@/db/queries";
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export async function GET(
@@ -34,7 +39,11 @@ export async function GET(
     // Get room messages
     const messages = await getRoomMessages(roomId, limit);
 
-    return Response.json({ messages });
+    return new Response(JSON.stringify({ messages }), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
   } catch (error) {
     console.error("Get room messages error:", error);
     return new Response("Internal server error", {
@@ -70,7 +79,7 @@ export async function POST(
     // Send room message (validation happens in the function)
     const message = await sendRoomMessage(roomId, session.user.id, text);
 
-    return Response.json({ message });
+    return NextResponse.json({ message });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return new Response("Invalid request payload", {

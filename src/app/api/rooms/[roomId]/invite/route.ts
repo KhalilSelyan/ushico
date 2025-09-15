@@ -51,9 +51,14 @@ export async function POST(
       }
     }
 
-    return Response.json({
+    return new Response(JSON.stringify({
       invitations,
       errors: errors.length > 0 ? errors : undefined,
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

@@ -1,6 +1,7 @@
 import { auth } from "@/auth/auth";
 import { transferRoomHost, isRoomHost, validateRoomAccess } from "@/db/queries";
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export async function POST(
@@ -46,7 +47,7 @@ export async function POST(
     // Transfer host
     await transferRoomHost(roomId, newHostId);
 
-    return Response.json({ success: true });
+    return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return new Response("Invalid request payload", {

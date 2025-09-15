@@ -1,6 +1,7 @@
 import { auth } from "@/auth/auth";
 import { createRoom, getUserById } from "@/db/queries";
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export async function POST(request: Request) {
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return Response.json({
+    return NextResponse.json({
       room,
       participants,
     });

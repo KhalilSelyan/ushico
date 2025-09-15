@@ -21,6 +21,7 @@ export type WebSocketEvent =
   | "create_room"
   | "join_room"
   | "leave_room"
+  | "sync_room_state"    // Sync existing room state with server
   | "host_sync"          // Replaces "sync" for rooms
   | "room_message"
   | "participant_joined"
@@ -256,6 +257,7 @@ export interface RoomSyncData {
   url: string;
   roomId: string;
   state: "playing" | "paused";
+  videoId: string; // UUID generated when URL changes
 }
 
 // Server error response format

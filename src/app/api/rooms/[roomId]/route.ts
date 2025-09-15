@@ -1,6 +1,7 @@
 import { auth } from "@/auth/auth";
 import { getRoomById, validateRoomAccess, leaveRoom, deactivateRoom, isRoomHost } from "@/db/queries";
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 
 export async function GET(
   request: Request,
@@ -36,7 +37,7 @@ export async function GET(
       });
     }
 
-    return Response.json({
+    return NextResponse.json({
       room: roomData,
       participants: roomData.participants.map(p => ({
         ...p.user,
@@ -87,7 +88,7 @@ export async function DELETE(
       await leaveRoom(roomId, session.user.id);
     }
 
-    return Response.json({ success: true });
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Leave/deactivate room error:", error);
     return new Response("Internal server error", {

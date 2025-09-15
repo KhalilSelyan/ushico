@@ -1,6 +1,7 @@
 import { auth } from "@/auth/auth";
 import { joinRoom, getRoomById } from "@/db/queries";
 import { headers } from "next/headers";
+import { NextResponse } from 'next/server';
 
 export async function POST(
   request: Request,
@@ -30,7 +31,7 @@ export async function POST(
     // Join the room
     await joinRoom(roomId, session.user.id);
 
-    return Response.json({
+    return NextResponse.json({
       success: true,
       room: roomData,
     });

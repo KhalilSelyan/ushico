@@ -1,6 +1,7 @@
 "use client";
 
-import { RoomInvitation, Room, User } from "@/db/schema";
+import { RoomInvitation, Room } from "@/db/schema";
+import { User } from "better-auth";
 import { Mail, Check, X, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

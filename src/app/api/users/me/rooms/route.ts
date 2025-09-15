@@ -1,6 +1,7 @@
 import { auth } from "@/auth/auth";
 import { getUserRooms, getUserRoomInvitations } from "@/db/queries";
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
   try {
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
       getUserRoomInvitations(session.user.id),
     ]);
 
-    return Response.json({
+    return NextResponse.json({
       rooms,
       invitations,
     });
