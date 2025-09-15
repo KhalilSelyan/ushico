@@ -1,9 +1,12 @@
 "use client";
 
 import { Room } from "@/db/schema";
-import { Plus, Users, Play } from "lucide-react";
+import { Plus, Users, Play, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { useRouter } from "next/navigation";
 
 interface UserRoomsSectionProps {
   rooms: Room[];
@@ -16,6 +19,39 @@ export default function UserRoomsSection({
   onCreateRoom,
   onJoinRoom,
 }: UserRoomsSectionProps) {
+  const [showJoinInput, setShowJoinInput] = useState(false);
+  const [roomCode, setRoomCode] = useState("");
+  const [isJoining, setIsJoining] = useState(false);
+  const router = useRouter();
+
+  const handleJoinByCode = async () => {
+    if (!roomCode.trim()) return;
+
+    setIsJoining(true);
+    try {
+      // First, find the room by code
+      const response = await fetch(`/api/rooms/find-by-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: roomCode.trim().toUpperCase() }),
+      });
+
+      if (response.ok) {
+        const { roomId } = await response.json();
+        router.push(`/watch/room/${roomId}`);
+      } else {
+        alert("Room not found. Please check the code and try again.");
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+      alert("Failed to join room. Please try again.");
+    } finally {
+      setIsJoining(false);
+      setRoomCode("");
+      setShowJoinInput(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -24,11 +60,51 @@ export default function UserRoomsSection({
             <Users className="h-5 w-5" />
             Watch Parties
           </CardTitle>
-          <Button onClick={onCreateRoom} size="sm">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Party
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setShowJoinInput(!showJoinInput)}
+              size="sm"
+              variant="outline"
+            >
+              <Hash className="h-4 w-4 mr-2" />
+              Join Room
+            </Button>
+            <Button onClick={onCreateRoom} size="sm">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Party
+            </Button>
+          </div>
         </div>
+
+        {showJoinInput && (
+          <div className="mt-4 flex items-center gap-2">
+            <Input
+              placeholder="Enter room code (e.g., ABC123)"
+              value={roomCode}
+              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+              onKeyPress={(e) => e.key === "Enter" && handleJoinByCode()}
+              className="max-w-xs"
+              disabled={isJoining}
+            />
+            <Button
+              onClick={handleJoinByCode}
+              disabled={!roomCode.trim() || isJoining}
+              size="sm"
+            >
+              {isJoining ? "Joining..." : "Join"}
+            </Button>
+            <Button
+              onClick={() => {
+                setShowJoinInput(false);
+                setRoomCode("");
+              }}
+              variant="ghost"
+              size="sm"
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {rooms.length === 0 ? (
