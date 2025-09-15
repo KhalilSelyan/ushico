@@ -20,6 +20,12 @@ export default async function RoomWatchPage({ params }: RoomWatchPageProps) {
     return null;
   }
 
+  // Fetch room data first to check if room exists
+  const roomData = await getRoomById(roomId);
+  if (!roomData || !roomData.isActive) {
+    notFound();
+  }
+
   // Check room access with hybrid validation
   const accessResult = await validateRoomAccessHybrid(roomId, session.user.id);
 
@@ -39,11 +45,6 @@ export default async function RoomWatchPage({ params }: RoomWatchPageProps) {
     }
   }
 
-  // Fetch room data
-  const roomData = await getRoomById(roomId);
-  if (!roomData || !roomData.isActive) {
-    notFound();
-  }
 
   // Determine user role
   const userParticipant = roomData.participants.find(

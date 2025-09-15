@@ -1,5 +1,5 @@
 import { auth } from "@/auth/auth";
-import { getRoomById, validateRoomAccess } from "@/db/queries";
+import { getRoomById } from "@/db/queries";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
@@ -20,12 +20,8 @@ export default async function RoomLayout({
     return null;
   }
 
-  // Validate access and get room data
-  const hasAccess = await validateRoomAccess(roomId, session.user.id);
-  if (!hasAccess) {
-    notFound();
-  }
-
+  // Only validate that the room exists and is active in layout
+  // Access validation is handled by individual pages
   const roomData = await getRoomById(roomId);
   if (!roomData || !roomData.isActive) {
     notFound();
