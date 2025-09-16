@@ -714,6 +714,15 @@ const VideoPlayer = ({
   }, []);
 
   useEffect(() => {
+    const isInputFocused = () => {
+      const activeElement = document.activeElement;
+      return (
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        (activeElement && activeElement.contentEditable === "true")
+      );
+    };
+
     const handleEscKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && isCustomFullscreen) {
         setIsCustomFullscreen(false);
@@ -722,7 +731,7 @@ const VideoPlayer = ({
     };
 
     const handleFKey = (event: KeyboardEvent) => {
-      if (event.key === "f") {
+      if (event.key === "f" && !isInputFocused()) {
         toggleCustomFullscreen();
       }
     };
