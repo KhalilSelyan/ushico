@@ -9,6 +9,7 @@ import RemoveFriendButton from "@/components/RemoveFriendButton";
 import { getWebSocketService } from "@/lib/websocket";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
+import CreateRoomModal from "@/components/CreateRoomModal";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,9 @@ const FriendsPageClient = ({
   const [friendRequests, setFriendRequests] = useState(initialFriendRequests);
   const [isAddFriendDialogOpen, setIsAddFriendDialogOpen] = useState(false);
   const [showSuccessState, setShowSuccessState] = useState(false);
+  const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
+  const [selectedFriendForRoom, setSelectedFriendForRoom] = useState<User | null>(null);
+  const [checkingRoomFor, setCheckingRoomFor] = useState<string | null>(null);
   const router = useRouter();
 
   const {
@@ -151,28 +155,45 @@ const FriendsPageClient = ({
     }
   };
 
-  const createWatchPartyWithFriend = async (friendId: string, friendName: string) => {
+  const handleCreateWatchPartyWithFriend = async (friend: User) => {
+    setCheckingRoomFor(friend.id);
+
     try {
-      const response = await fetch("/api/rooms/create", {
+      // Check if there's already a 1-on-1 room with this friend
+      const response = await fetch("/api/rooms/check-existing", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          name: `Watch Party with ${friendName}`,
-          inviteUserIds: [friendId],
+          friendId: friend.id,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to create room");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.hasExistingRoom) {
+          // Redirect to existing room instead of creating new one
+          router.push(`/watch/room/${data.existingRoom.id}`);
+          return;
+        }
       }
 
-      const data = await response.json();
-      router.push(`/watch/room/${data.room.id}`);
+      // No existing room found, proceed with modal
+      setSelectedFriendForRoom(friend);
+      setIsCreateRoomModalOpen(true);
     } catch (error) {
-      console.error("Error creating watch party:", error);
+      console.error("Error checking for existing room:", error);
+      // If check fails, still allow creating new room
+      setSelectedFriendForRoom(friend);
+      setIsCreateRoomModalOpen(true);
+    } finally {
+      setCheckingRoomFor(null);
     }
+  };
+
+  const handleRoomCreated = (room: any) => {
+    router.push(`/watch/room/${room.id}`);
   };
 
   const addFriend = async (email: string) => {
@@ -345,17 +366,31 @@ const FriendsPageClient = ({
                 <p className="text-sm text-gray-500 mb-4">{friend.email}</p>
                 <div className="flex gap-2 mt-auto">
                   <button
-                    onClick={() => createWatchPartyWithFriend(friend.id, friend.name)}
-                    className="flex items-center gap-1 px-3 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
+                    onClick={() => handleCreateWatchPartyWithFriend(friend)}
+                    disabled={checkingRoomFor === friend.id}
+                    className="flex items-center gap-1 px-3 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Video className="w-4 h-4" />
-                    Watch Party
+                    {checkingRoomFor === friend.id ? "Checking..." : "Watch Party"}
                   </button>
                   <RemoveFriendButton friend={friend} userId={userId} />
                 </div>
               </div>
             ))}
           </div>
+        )}
+
+        {/* Create Room Modal for Watch Parties */}
+        {selectedFriendForRoom && (
+          <CreateRoomModal
+            isOpen={isCreateRoomModalOpen}
+            onClose={() => {
+              setIsCreateRoomModalOpen(false);
+              setSelectedFriendForRoom(null);
+            }}
+            onRoomCreated={handleRoomCreated}
+            friends={[selectedFriendForRoom]}
+          />
         )}
       </div>
     </div>

@@ -7,10 +7,11 @@ import { z } from "zod";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, inviteUserIds } = z
+    const { name, inviteUserIds, isEphemeral } = z
       .object({
         name: z.string().min(1, "Room name is required"),
         inviteUserIds: z.array(z.string()).optional().default([]),
+        isEphemeral: z.boolean().optional().default(false),
       })
       .parse(body);
 
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     // Create room with host and optional initial participants
-    const room = await createRoom(session.user.id, name, inviteUserIds);
+    const room = await createRoom(session.user.id, name, inviteUserIds, isEphemeral);
 
     // Get participant details for response
     const participants = [];

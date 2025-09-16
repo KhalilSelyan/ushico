@@ -205,9 +205,12 @@ export async function getUserById(id: string): Promise<User | null> {
 export async function createRoom(
   hostId: string,
   name: string,
-  initialParticipants: string[] = []
+  initialParticipants: string[] = [],
+  isEphemeral: boolean = false
 ): Promise<Room> {
   const roomCode = await generateRoomCode();
+
+  // Ephemeral rooms will be cleaned up daily (no need for precise expiration time)
 
   const [newRoom] = await db
     .insert(room)
@@ -216,6 +219,7 @@ export async function createRoom(
       name,
       hostId,
       isActive: true,
+      isEphemeral,
       maxParticipants: "10",
       roomCode,
       createdAt: new Date(),
@@ -246,6 +250,32 @@ export async function createRoom(
   }
 
   return newRoom;
+}
+
+export async function findExistingOneOnOneRoom(userId1: string, userId2: string): Promise<Room | null> {
+  // Find rooms where only these two users are participants
+  const rooms = await db.query.room.findMany({
+    where: eq(room.isActive, true),
+    with: {
+      participants: {
+        with: {
+          user: true,
+        },
+      },
+    },
+  });
+
+  // Filter for rooms that have exactly these two users as participants
+  const oneOnOneRoom = rooms.find(room => {
+    const participantIds = room.participants.map(p => p.userId).sort();
+    const targetIds = [userId1, userId2].sort();
+
+    return participantIds.length === 2 &&
+           participantIds[0] === targetIds[0] &&
+           participantIds[1] === targetIds[1];
+  });
+
+  return oneOnOneRoom || null;
 }
 
 export async function getRoomById(roomId: string) {
@@ -622,6 +652,40 @@ export async function deactivateRoom(roomId: string): Promise<void> {
     .update(room)
     .set({ isActive: false, updatedAt: new Date() })
     .where(eq(room.id, roomId));
+}
+
+export async function cleanupUserEphemeralRooms(userId: string): Promise<number> {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+  // Find user's ephemeral rooms created before today
+  const expiredRooms = await db.query.room.findMany({
+    where: and(
+      eq(room.hostId, userId),
+      eq(room.isEphemeral, true),
+      eq(room.isActive, true),
+      sql`${room.createdAt} < ${todayStart}`
+    ),
+  });
+
+  if (expiredRooms.length === 0) {
+    return 0;
+  }
+
+  // Deactivate expired rooms
+  await db
+    .update(room)
+    .set({ isActive: false, updatedAt: today })
+    .where(
+      and(
+        eq(room.hostId, userId),
+        eq(room.isEphemeral, true),
+        eq(room.isActive, true),
+        sql`${room.createdAt} < ${todayStart}`
+      )
+    );
+
+  return expiredRooms.length;
 }
 
 // Room join request functions

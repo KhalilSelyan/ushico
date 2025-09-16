@@ -1,7 +1,7 @@
 "use client";
 
 import { Room } from "@/db/schema";
-import { Plus, Users, Play, Hash, Trash2, LogOut, MoreHorizontal, Settings } from "lucide-react";
+import { Plus, Users, Play, Hash, Trash2, LogOut, MoreHorizontal, Settings, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState } from "react";
@@ -208,9 +208,22 @@ export default function UserRoomsSection({
                     <Play className="h-5 w-5 text-primary" />
                   </div>
                   <div>
-                    <h4 className="font-medium">{room.name}</h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-medium">{room.name}</h4>
+                      {room.isEphemeral && (
+                        <div className="flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-full">
+                          <Clock className="h-3 w-3" />
+                          24h
+                        </div>
+                      )}
+                    </div>
                     <p className="text-sm text-muted-foreground">
                       Created {new Date(room.createdAt).toLocaleDateString()}
+                      {room.isEphemeral && (
+                        <span className="ml-2">
+                          • Expires end of day
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { User } from "better-auth";
 import { Room } from "@/db/schema";
 import {
@@ -29,8 +29,22 @@ export default function CreateRoomModal({
 }: CreateRoomModalProps) {
   const [roomName, setRoomName] = useState("");
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+  const [isEphemeral, setIsEphemeral] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-populate room name and select friends when modal opens
+  useEffect(() => {
+    if (isOpen && friends.length === 1) {
+      // Single friend selected - this is a quick watch party
+      setRoomName(`Watch Party with ${friends[0].name}`);
+      setSelectedFriends([friends[0].id]);
+    } else if (isOpen && friends.length === 0) {
+      // No friends pre-selected - regular room creation
+      setRoomName("");
+      setSelectedFriends([]);
+    }
+  }, [isOpen, friends]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +65,7 @@ export default function CreateRoomModal({
         body: JSON.stringify({
           name: roomName.trim(),
           inviteUserIds: selectedFriends,
+          isEphemeral,
         }),
       });
 
@@ -64,6 +79,7 @@ export default function CreateRoomModal({
       // Reset form
       setRoomName("");
       setSelectedFriends([]);
+      setIsEphemeral(false);
       onClose();
     } catch (error) {
       console.error("Create room error:", error);
@@ -127,6 +143,29 @@ export default function CreateRoomModal({
               </p>
             </div>
           )}
+
+          <div className="space-y-2">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="ephemeral"
+                checked={isEphemeral}
+                onCheckedChange={(checked) =>
+                  setIsEphemeral(checked === "indeterminate" ? false : checked)
+                }
+                disabled={isCreating}
+              />
+              <Label
+                htmlFor="ephemeral"
+                className="text-sm font-normal cursor-pointer"
+              >
+                Ephemeral room (auto-delete end of day)
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Ephemeral rooms are automatically deleted at the end of the day to
+              keep your watch history clean
+            </p>
+          </div>
 
           {error && <div className="text-sm text-destructive">{error}</div>}
 

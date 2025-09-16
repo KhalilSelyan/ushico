@@ -9,6 +9,7 @@ import UserRoomsSection from "@/components/UserRoomsSection";
 import RoomInvitationsSection from "@/components/RoomInvitationsSection";
 import CreateRoomModal from "@/components/CreateRoomModal";
 import { getWebSocketService } from "@/lib/websocket";
+import { useDailyCleanup } from "@/hooks/useDailyCleanup";
 
 interface DashboardClientProps {
   user: User;
@@ -27,6 +28,9 @@ export default function DashboardClient({
   const [rooms, setRooms] = useState(initialRooms);
   const [invitations, setInvitations] = useState(initialInvitations);
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
+
+  // Run daily cleanup for user's ephemeral rooms
+  useDailyCleanup();
 
   // Check for migration query parameter and set up WebSocket listeners
   useEffect(() => {

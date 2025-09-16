@@ -242,6 +242,8 @@ export const room = creator("room", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   isActive: boolean("is_active").notNull().default(true),
+  isEphemeral: boolean("is_ephemeral").notNull().default(false), // Auto-delete after 24 hours
+  expiresAt: timestamp("expires_at"), // When ephemeral room expires
   maxParticipants: text("max_participants").default("10"), // Optional limit
   roomCode: text("room_code").unique(), // Optional invite code
   createdAt: timestamp("created_at").notNull().defaultNow(),
