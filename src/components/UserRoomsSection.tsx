@@ -14,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 interface UserRoomsSectionProps {
   rooms: Room[];
@@ -21,6 +22,7 @@ interface UserRoomsSectionProps {
   onCreateRoom: () => void;
   onJoinRoom: (roomId: string) => void;
   onRoomsChange?: () => void;
+  onRoomRemoved?: (roomId: string) => void;
 }
 
 export default function UserRoomsSection({
@@ -29,11 +31,24 @@ export default function UserRoomsSection({
   onCreateRoom,
   onJoinRoom,
   onRoomsChange,
+  onRoomRemoved,
 }: UserRoomsSectionProps) {
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [isLeaving, setIsLeaving] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    roomId?: string;
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+  });
   const router = useRouter();
 
   const handleJoinByCode = async () => {
@@ -81,17 +96,28 @@ export default function UserRoomsSection({
     }
   };
 
-  const handleLeaveRoom = async (roomId: string) => {
-    if (!confirm("Are you sure you want to leave this room?")) return;
+  const handleLeaveRoom = (roomId: string, roomName: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Leave Room",
+      description: `Are you sure you want to leave "${roomName}"? You'll need to be re-invited to join again.`,
+      roomId,
+      onConfirm: () => confirmLeaveRoom(roomId),
+    });
+  };
 
+  const confirmLeaveRoom = async (roomId: string) => {
     setIsLeaving(roomId);
+    setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+
     try {
       const response = await fetch(`/api/rooms/${roomId}`, {
         method: "DELETE",
       });
 
       if (response.ok) {
-        onRoomsChange?.();
+        // Optimistically remove room from UI immediately
+        onRoomRemoved?.(roomId);
       } else {
         alert("Failed to leave room. Please try again.");
       }
@@ -103,17 +129,28 @@ export default function UserRoomsSection({
     }
   };
 
-  const handleDeactivateRoom = async (roomId: string) => {
-    if (!confirm("Are you sure you want to deactivate this room? This will end the watch party for all participants.")) return;
+  const handleDeactivateRoom = (roomId: string, roomName: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "End Watch Party",
+      description: `Are you sure you want to end "${roomName}"? This will end the watch party for all participants and cannot be undone.`,
+      roomId,
+      onConfirm: () => confirmDeactivateRoom(roomId),
+    });
+  };
 
+  const confirmDeactivateRoom = async (roomId: string) => {
     setIsLeaving(roomId);
+    setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+
     try {
       const response = await fetch(`/api/rooms/${roomId}`, {
         method: "DELETE",
       });
 
       if (response.ok) {
-        onRoomsChange?.();
+        // Optimistically remove room from UI immediately
+        onRoomRemoved?.(roomId);
       } else {
         alert("Failed to deactivate room. Please try again.");
       }
@@ -256,7 +293,7 @@ export default function UserRoomsSection({
                             Manage Room
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => handleDeactivateRoom(room.id)}
+                            onClick={() => handleDeactivateRoom(room.id, room.name)}
                             className="text-red-600 focus:text-red-600"
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
@@ -265,7 +302,7 @@ export default function UserRoomsSection({
                         </>
                       ) : (
                         <DropdownMenuItem
-                          onClick={() => handleLeaveRoom(room.id)}
+                          onClick={() => handleLeaveRoom(room.id, room.name)}
                           className="text-red-600 focus:text-red-600"
                         >
                           <LogOut className="h-4 w-4 mr-2" />
@@ -280,6 +317,18 @@ export default function UserRoomsSection({
           </div>
         )}
       </CardContent>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmText={confirmDialog.title.includes("End") ? "End Watch Party" : "Leave Room"}
+        variant="destructive"
+        isLoading={isLeaving === confirmDialog.roomId}
+      />
     </Card>
   );
 }

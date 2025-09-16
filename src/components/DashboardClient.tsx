@@ -101,6 +101,13 @@ export default function DashboardClient({
     router.refresh();
   };
 
+  const handleRoomRemoved = (roomId: string) => {
+    // Optimistically remove the room from local state
+    setRooms(prev => prev.filter(room => room.id !== roomId));
+    // Also refresh from server
+    router.refresh();
+  };
+
   const handleInvitationResponse = async (
     invitationId: string,
     status: "accepted" | "declined"
@@ -147,6 +154,7 @@ export default function DashboardClient({
         onCreateRoom={handleCreateRoom}
         onJoinRoom={handleJoinRoom}
         onRoomsChange={handleRoomsChange}
+        onRoomRemoved={handleRoomRemoved}
       />
 
 
