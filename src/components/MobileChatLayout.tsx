@@ -4,7 +4,6 @@
 import { Icons } from "@/components/Icons";
 import { Session, User } from "better-auth";
 import Link from "next/link";
-import SidebarChatList from "./SidebarChatList";
 import SignOutButton from "./SignoutButton";
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
@@ -88,15 +87,6 @@ const MobileChatLayout: FC<MobileChatLayoutProps> = ({
                   <Icons.Logo className="h-8 w-auto text-indigo-600" />
                 </Link>
                 <SignOutButton className="h-8 w-8" />
-              </div>
-
-              <div className="mt-5 flex-1 px-2">
-                <nav className="flex-1 space-y-1">
-                  <div className="text-xs font-semibold leading-6 text-gray-400">
-                    Your chats
-                  </div>
-                  <SidebarChatList chats={friends} userId={session.user.id} />
-                </nav>
               </div>
 
               <div className="mt-5 px-2">

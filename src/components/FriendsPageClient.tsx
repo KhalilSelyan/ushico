@@ -2,14 +2,26 @@
 "use client";
 
 import { User } from "better-auth";
-import { MessageSquare, UserMinus, UserPlus } from "lucide-react";
-import Link from "next/link";
+import { UserMinus, UserPlus, Video } from "lucide-react";
 import { useEffect, useState } from "react";
-import { hrefChatConstructor } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import RemoveFriendButton from "@/components/RemoveFriendButton";
 import { getWebSocketService } from "@/lib/websocket";
 import axios from "axios";
-import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { addFriendValidator, type AddFriend } from "@/lib/validators/add-friend";
+import { z } from "zod";
 
 interface FriendsPageClientProps {
   initialFriends: User[];
@@ -31,7 +43,19 @@ const FriendsPageClient = ({
 }: FriendsPageClientProps) => {
   const [friends, setFriends] = useState<User[]>(initialFriends);
   const [friendRequests, setFriendRequests] = useState(initialFriendRequests);
+  const [isAddFriendDialogOpen, setIsAddFriendDialogOpen] = useState(false);
+  const [showSuccessState, setShowSuccessState] = useState(false);
   const router = useRouter();
+
+  const {
+    register,
+    formState: { errors },
+    setError,
+    handleSubmit,
+    reset,
+  } = useForm<AddFriend>({
+    resolver: zodResolver(addFriendValidator),
+  });
 
   useEffect(() => {
     const friendsChannel = `user:${userId}:friends`;
@@ -127,9 +151,128 @@ const FriendsPageClient = ({
     }
   };
 
+  const createWatchPartyWithFriend = async (friendId: string, friendName: string) => {
+    try {
+      const response = await fetch("/api/rooms/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: `Watch Party with ${friendName}`,
+          inviteUserIds: [friendId],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create room");
+      }
+
+      const data = await response.json();
+      router.push(`/watch/room/${data.room.id}`);
+    } catch (error) {
+      console.error("Error creating watch party:", error);
+    }
+  };
+
+  const addFriend = async (email: string) => {
+    try {
+      const validatedEmail = addFriendValidator.parse({ email });
+
+      const response = await axios.post("/api/friends/add", {
+        email: validatedEmail.email,
+      });
+
+      const { request, receiver } = response.data;
+
+      // Send WebSocket message to notify the receiver
+      const wsService = getWebSocketService(user.id);
+      const channel = `user:${receiver.id}:incoming_friend_requests`;
+      await wsService.send(channel, "incoming_friend_request", {
+        senderId: user.id,
+        senderEmail: user.email,
+        senderName: user.name,
+        senderImage: user.image,
+        requestId: request.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      setShowSuccessState(true);
+      reset();
+      setTimeout(() => {
+        setShowSuccessState(false);
+        setIsAddFriendDialogOpen(false);
+      }, 2000);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        setError("email", { message: err.message });
+        return;
+      }
+      if (axios.isAxiosError(err)) {
+        setError("email", {
+          message: err.response?.data?.error || "Something went wrong",
+        });
+        return;
+      }
+      setError("email", { message: "Something went wrong" });
+    }
+  };
+
+  const onAddFriendSubmit = async (data: AddFriend) => {
+    await addFriend(data.email);
+  };
+
   return (
     <div className="container py-12">
-      <h1 className="font-bold text-5xl mb-8">Friends</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="font-bold text-5xl">Friends</h1>
+        <Dialog open={isAddFriendDialogOpen} onOpenChange={setIsAddFriendDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="flex items-center gap-2">
+              <UserPlus className="w-4 h-4" />
+              Add Friend
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Friend</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleSubmit(onAddFriendSubmit)} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Friend&apos;s Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="friend@example.com"
+                  {...register("email")}
+                />
+                {errors.email && (
+                  <p className="text-sm text-destructive">{errors.email.message}</p>
+                )}
+                {showSuccessState && (
+                  <p className="text-sm text-green-600">
+                    Friend request sent successfully!
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end space-x-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsAddFriendDialogOpen(false);
+                    reset();
+                    setShowSuccessState(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit">Send Request</Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
 
       {/* Friend Requests Section */}
       {friendRequests.length > 0 && (
@@ -201,16 +344,13 @@ const FriendsPageClient = ({
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">{friend.email}</p>
                 <div className="flex gap-2 mt-auto">
-                  <Link
-                    href={`/dashboard/chat/${hrefChatConstructor(
-                      userId,
-                      friend.id
-                    )}`}
+                  <button
+                    onClick={() => createWatchPartyWithFriend(friend.id, friend.name)}
                     className="flex items-center gap-1 px-3 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
                   >
-                    <MessageSquare className="w-4 h-4" />
-                    Chat
-                  </Link>
+                    <Video className="w-4 h-4" />
+                    Watch Party
+                  </button>
                   <RemoveFriendButton friend={friend} userId={userId} />
                 </div>
               </div>

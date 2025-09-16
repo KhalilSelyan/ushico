@@ -4,9 +4,7 @@ import db from "./index";
 import {
   type FriendRequest,
   friendRequest,
-  message,
   type NewFriendRequest,
-  type NewMessage,
   user,
   friend,
   room,
@@ -25,7 +23,7 @@ import {
   type RoomJoinRequest,
   type NewRoomJoinRequest,
 } from "./schema";
-import type { Message, User } from "./schema";
+import type { User } from "./schema";
 
 export async function getFriendsById(userId: string) {
   const friends = await db.query.friend.findMany({
@@ -47,61 +45,6 @@ export async function getUnseenFriendRequestCount(userId: string) {
   return count[0].count;
 }
 
-export async function getChatMessages(chatId: string): Promise<Message[]> {
-  const [userId1, userId2] = chatId.split("--");
-  const messages = await db.query.message.findMany({
-    where: or(
-      and(eq(message.senderId, userId1), eq(message.receiverId, userId2)),
-      and(eq(message.senderId, userId2), eq(message.receiverId, userId1))
-    ),
-    orderBy: (messages, { desc }) => [desc(messages.timestamp)],
-  });
-
-  return messages.map((msg: Message) => ({
-    ...msg,
-    timestamp: new Date(msg.timestamp.getTime()),
-  }));
-}
-
-export async function sendMessage({
-  chatId,
-  senderId,
-  text,
-}: {
-  chatId: string;
-  senderId: string;
-  text: string;
-}): Promise<Message> {
-  const [userId1, userId2] = chatId.split("--");
-  const receiverId = senderId === userId1 ? userId2 : userId1;
-
-  // Check if users are friends
-  const friendship = await db.query.friend.findFirst({
-    where: and(eq(friend.userId, senderId), eq(friend.friendId, receiverId)),
-  });
-
-  if (!friendship) {
-    throw new Error("Users are not friends");
-  }
-
-  const [newMessage] = await db
-    .insert(message)
-    .values({
-      id: nanoid(),
-      senderId,
-      receiverId,
-      text,
-      timestamp: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .returning();
-
-  return {
-    ...newMessage,
-    timestamp: new Date(newMessage.timestamp.getTime()),
-  };
-}
 
 export async function getFriendRequests(userId: string) {
   const requests = await db.query.friendRequest.findMany({

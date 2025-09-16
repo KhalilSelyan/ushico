@@ -7,7 +7,6 @@ import { auth } from "@/auth/auth";
 import FriendRequestBadge from "@/components/FriendRequestBadge";
 import { Icons } from "@/components/Icons";
 import MobileChatLayout from "@/components/MobileChatLayout";
-import SidebarChatList from "@/components/SidebarChatList";
 import SignoutButton from "@/components/SignoutButton";
 import { getUnseenFriendRequestCount } from "@/db/queries";
 import { getFriendsById } from "@/helpers/getfriendsbyid";
@@ -26,18 +25,12 @@ interface SidebarOption {
 const sidebarOptions: SidebarOption[] = [
   {
     id: 1,
-    name: "Add Friend",
-    href: "/dashboard/add",
-    Icon: "UserPlus",
-  },
-  {
-    id: 2,
     name: "Friends",
     href: "/dashboard/friends",
     Icon: "Users",
   },
   {
-    id: 3,
+    id: 2,
     name: "Movies",
     href: "/dashboard/movies",
     Icon: "Film",
@@ -77,12 +70,6 @@ const Layout = async ({ children }: LayoutProps) => {
           </div>
           <nav className="flex flex-1 flex-col">
             <ul className="flex flex-1 flex-col gap-y-7">
-              <li>
-                <div className="text-xs font-semibold leading-6 text-gray-400">
-                  Your chats
-                </div>
-                <SidebarChatList chats={friends} userId={session.user.id} />
-              </li>
               <li>
                 <div className="text-xs font-semibold leading-6 text-gray-400">
                   Overview
