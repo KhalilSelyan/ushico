@@ -1,16 +1,13 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { Message as DbMessage } from "@/db/schema";
 import { Dialog, Transition } from "@headlessui/react";
 import { User } from "better-auth";
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FC, Fragment, useEffect, useState } from "react";
-import ChatInput from "./ChatInput";
 import { Icons } from "./Icons";
-import Messages from "./Messages";
 import SignOutButton from "./SignoutButton";
 import Button, { buttonVariants } from "./ui/ButtonOld";
 
@@ -18,14 +15,12 @@ interface MobileChatWatchLayoutProps {
   chatId: string;
   user: User;
   chatPartner: User;
-  initialMessages: DbMessage[];
 }
 
 const MobileChatWatchLayout: FC<MobileChatWatchLayoutProps> = ({
   chatId,
   user,
   chatPartner,
-  initialMessages,
 }) => {
   const [open, setOpen] = useState<boolean>(false);
 
@@ -87,20 +82,7 @@ const MobileChatWatchLayout: FC<MobileChatWatchLayoutProps> = ({
                             role="list"
                             className="flex flex-1 flex-col gap-y-4 justify-between"
                           >
-                            <li className="max-h-[36rem]">
-                              <Messages
-                                chatId={chatId}
-                                user={user}
-                                chatPartner={chatPartner}
-                                initialMessages={initialMessages}
-                              />
-                            </li>
                             <li className="-mx-6 flex flex-col w-full justify-center">
-                              <ChatInput
-                                chatId={chatId}
-                                user={user}
-                                chatPartner={chatPartner}
-                              />
                               <div className="flex flex-row items-center">
                                 <div className="flex flex-1 items-center gap-x-4 px-6 py-3 text-sm font-semibold leading-6 text-gray-900">
                                   <div className="relative h-8 w-8 bg-gray-50">

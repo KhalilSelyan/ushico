@@ -43,11 +43,15 @@ export default function RoomManageClient({ room, user }: RoomManageClientProps) 
             message: data.message,
             status: "pending" as const,
             createdAt: data.timestamp,
+            updatedAt: data.timestamp,
             requester: {
               id: data.requesterId,
               name: data.requesterName,
               image: data.requesterImage,
-              email: ""
+              email: "",
+              emailVerified: false,
+              createdAt: new Date(data.timestamp),
+              updatedAt: new Date(data.timestamp),
             }
           }]);
         }

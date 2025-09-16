@@ -719,7 +719,7 @@ const VideoPlayer = ({
       return (
         activeElement instanceof HTMLInputElement ||
         activeElement instanceof HTMLTextAreaElement ||
-        (activeElement && activeElement.contentEditable === "true")
+        (activeElement instanceof HTMLElement && activeElement.contentEditable === "true")
       );
     };
 

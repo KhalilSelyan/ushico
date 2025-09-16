@@ -1,11 +1,9 @@
 /* eslint-disable @next/next/no-img-element */
 import { auth } from "@/auth/auth";
-import ChatInput from "@/components/ChatInput";
 import { Icon, Icons } from "@/components/Icons";
-import Messages from "@/components/Messages";
 import MobileChatWatchLayout from "@/components/MobileChatWatchLayout";
 import SignoutButton from "@/components/SignoutButton";
-import { getChatMessages, getUnseenFriendRequestCount } from "@/db/queries";
+import { getUnseenFriendRequestCount } from "@/db/queries";
 import { getFriendsById } from "@/helpers/getfriendsbyid";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -46,8 +44,6 @@ const Layout = async ({ children, params }: LayoutProps) => {
   const chatPartnerId = chatId.split("--").find((id) => id !== session.user.id);
   const chatPartner = friends.find((friend) => friend.id === chatPartnerId)!;
 
-  const initialMessages = await getChatMessages(chatId);
-
   return (
     <div className="w-full h-screen flex">
       <div className="md:hidden">
@@ -55,7 +51,6 @@ const Layout = async ({ children, params }: LayoutProps) => {
           chatId={chatId}
           user={session.user}
           chatPartner={chatPartner}
-          initialMessages={initialMessages}
         />
       </div>
 
@@ -68,20 +63,7 @@ const Layout = async ({ children, params }: LayoutProps) => {
             role="list"
             className="flex flex-1 flex-col gap-y-4 justify-between"
           >
-            <li className="max-h-[calc(100dvh-18rem)] w-full">
-              <Messages
-                chatId={chatId}
-                user={session.user}
-                chatPartner={chatPartner}
-                initialMessages={initialMessages}
-              />
-            </li>
             <li className="-mx-6 flex flex-col w-full justify-center">
-              <ChatInput
-                chatId={chatId}
-                user={session.user}
-                chatPartner={chatPartner}
-              />
               <div className="flex flex-row items-center">
                 <div className="flex flex-1 items-center gap-x-4 px-6 py-3 text-sm font-semibold leading-6 text-gray-900">
                   <div className="relative h-8 w-8 bg-gray-50">
