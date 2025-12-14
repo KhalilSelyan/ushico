@@ -54,6 +54,24 @@ export function createAnnouncements(roomId: string) {
         oldHost,
         `${oldHost} transferred host to ${newHost} 👑`
       );
+    },
+
+    hostStartedStreaming: (userName: string) => {
+      sendRoomAnnouncement(
+        roomId,
+        'host_started_streaming',
+        userName,
+        `${userName} started streaming 📺`
+      );
+    },
+
+    hostStoppedStreaming: (userName: string) => {
+      sendRoomAnnouncement(
+        roomId,
+        'host_stopped_streaming',
+        userName,
+        `${userName} stopped streaming`
+      );
     }
   };
 }
