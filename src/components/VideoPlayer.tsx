@@ -733,6 +733,12 @@ const VideoPlayer = ({
             if (rtcVideoRef.current) {
               rtcVideoRef.current.srcObject = stream;
               rtcVideoRef.current.play().catch((err) => {
+                // AbortError happens when a new play() interrupts a pending one
+                // This is not a real error, just ignore it
+                if (err.name === "AbortError") {
+                  console.log("[VideoPlayer] Play request was interrupted, ignoring");
+                  return;
+                }
                 console.error("Error playing RTC stream:", err);
                 setError("Failed to play stream. Click to retry.");
               });

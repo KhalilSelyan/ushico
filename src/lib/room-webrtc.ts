@@ -312,7 +312,17 @@ class RoomWebRTCService {
    * Viewer: Set up media connection from host
    */
   private setupViewerMediaConnection(call: MediaConnection): void {
+    let streamReceived = false;
+
     call.on("stream", (remoteStream) => {
+      // PeerJS fires "stream" event multiple times (once per track)
+      // Only process the first one to avoid interrupting play()
+      if (streamReceived) {
+        console.log("[RoomWebRTC] Ignoring duplicate stream event");
+        return;
+      }
+      streamReceived = true;
+
       console.log("[RoomWebRTC] Received stream from host");
       this.options.onRemoteStream?.(remoteStream);
       this.options.onConnectionStateChange?.("connected");
@@ -320,6 +330,7 @@ class RoomWebRTCService {
 
     call.on("close", () => {
       console.log("[RoomWebRTC] Media connection to host closed");
+      streamReceived = false;
       this.options.onConnectionStateChange?.("disconnected");
     });
 
