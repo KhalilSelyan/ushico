@@ -9,8 +9,15 @@ import {
   Volume2,
   VolumeX,
   Volume1,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { wsService } from "@/lib/websocket";
+import {
+  webrtcService,
+  ConnectionState,
+  ConnectionQuality,
+} from "@/lib/webrtc";
 
 /* Interfaces and Types */
 
@@ -405,10 +412,11 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
   const [showControls, setShowControls] = useState(true);
   const [isHovering, setIsHovering] = useState(false);
   const [showInterface, setShowInterface] = useState(true);
-  const [connectionState, setConnectionState] = useState("new");
+  const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
+  const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>("excellent");
+  const [rtt, setRtt] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const peerConnection = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const lastSyncTime = useRef<number>(0);
   const syncTimeoutRef = useRef<NodeJS.Timeout>();
@@ -417,6 +425,7 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const progressRef = useRef<HTMLDivElement>(null);
   const blobUrl = useRef<string | null>(null);
+  const webrtcInitialized = useRef(false);
 
   // Constants
   const SYNC_INTERVAL = 1000 * 60 * 5; // 5 minutes
@@ -424,127 +433,79 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
   const SYNC_RETRY_INTERVAL = 5000; // 5 seconds
   const CONTROLS_HIDE_DELAY = 2000;
 
-  // Handle reconnection
+  // Handle reconnection - now handled by PeerJS automatically
   const handleReconnect = useCallback(async () => {
-    if (type === "host" && peerConnection.current && localStream.current) {
+    if (type === "host" && localStream.current) {
       try {
-        // Clear existing tracks
-        const senders = peerConnection.current.getSenders();
-        senders.forEach((sender) =>
-          peerConnection.current?.removeTrack(sender)
-        );
-
-        // Re-add tracks
-        localStream.current.getTracks().forEach((track) => {
-          peerConnection.current?.addTrack(track, localStream.current!);
-        });
-
-        // Create new offer
-        const offer = await peerConnection.current.createOffer({
-          offerToReceiveVideo: true,
-          offerToReceiveAudio: true,
-        });
-
-        await peerConnection.current.setLocalDescription(offer);
-        wsService.send(`${chatId}`, "sync-offer", { sdp: offer });
-
-        console.log("Reconnection attempt completed");
+        console.log("Attempting reconnection with new stream...");
+        webrtcService.sendStream(localStream.current);
       } catch (err) {
         console.error("Reconnection failed:", err);
         setError("Connection failed. Please try refreshing the page.");
       }
     }
-  }, [chatId, type]);
+  }, [type]);
 
   useEffect(() => {
     setType(user.id === userId1 ? "host" : "watcher");
     wsService.setUserId(user.id);
   }, [user, userId1]);
 
-  // Initialize WebRTC peer connection
+  // Initialize WebRTC with PeerJS
   useEffect(() => {
-    const configuration: RTCConfiguration = {
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
-      ],
-    };
+    if (webrtcInitialized.current) return;
 
-    peerConnection.current = new RTCPeerConnection(configuration);
+    const initWebRTC = async () => {
+      try {
+        webrtcInitialized.current = true;
+        const isHost = user.id === userId1;
 
-    // Connection state changes
-    peerConnection.current.onconnectionstatechange = () => {
-      const state = peerConnection.current?.connectionState || "new";
-      setConnectionState(state);
-      console.log("Connection state changed:", state);
+        await webrtcService.init(chatId, isHost, {
+          onConnectionStateChange: (state) => {
+            console.log("[VideoPlayerRTC] Connection state:", state);
+            setConnectionState(state);
 
-      if (state === "failed" || state === "disconnected") {
-        console.error(
-          "Connection failed or disconnected, attempting reconnect..."
-        );
-        handleReconnect();
-      }
-    };
-
-    // ICE connection state changes
-    peerConnection.current.oniceconnectionstatechange = () => {
-      console.log(
-        "ICE connection state:",
-        peerConnection.current?.iceConnectionState
-      );
-    };
-
-    // Signaling state changes
-    peerConnection.current.onsignalingstatechange = () => {
-      console.log("Signaling state:", peerConnection.current?.signalingState);
-    };
-
-    // ICE gathering state changes
-    peerConnection.current.onicegatheringstatechange = () => {
-      console.log(
-        "ICE gathering state:",
-        peerConnection.current?.iceGatheringState
-      );
-    };
-
-    // ICE candidate errors
-    peerConnection.current.onicecandidateerror = (
-      event: RTCPeerConnectionIceErrorEvent
-    ) => {
-      console.error("ICE candidate error:", event);
-    };
-
-    // Host and client handle ICE candidates
-    peerConnection.current.onicecandidate = (event) => {
-      console.log({ event });
-      if (event.candidate) {
-        wsService.send(`${chatId}`, "sync-ice-candidate", {
-          candidate: event.candidate,
+            if (state === "disconnected" || state === "failed") {
+              setError("Connection lost. Attempting to reconnect...");
+              if (isHost && localStream.current) {
+                handleReconnect();
+              }
+            } else if (state === "connected") {
+              setError(null);
+            }
+          },
+          onRemoteStream: (stream) => {
+            console.log("[VideoPlayerRTC] Received remote stream");
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              videoRef.current.play().catch((err) => {
+                console.error("Error playing remote stream:", err);
+                setError("Failed to play video. Click to retry.");
+              });
+            }
+          },
+          onConnectionQualityChange: (quality, roundTripTime) => {
+            setConnectionQuality(quality);
+            setRtt(roundTripTime);
+          },
+          onError: (errorMsg) => {
+            console.error("[VideoPlayerRTC] Error:", errorMsg);
+            setError(errorMsg);
+          },
         });
+
+        // Watcher requests to receive stream
+        if (!isHost) {
+          webrtcService.requestStream();
+        }
+      } catch (err) {
+        console.error("Failed to initialize WebRTC:", err);
+        setError("Failed to connect. Please refresh the page.");
       }
     };
 
-    // Client receives the video stream from the host
-    if (type === "watcher") {
-      peerConnection.current.ontrack = (event) => {
-        console.log("Received remote track:", event.track.kind);
-        const [remoteStream] = event.streams;
-        if (videoRef.current && remoteStream) {
-          console.log("Setting remote stream to video element");
-          videoRef.current.srcObject = remoteStream;
+    initWebRTC();
 
-          console.log({ remoteStream });
-          // Attempt to play the video
-          videoRef.current.play().catch((err) => {
-            console.error("Error playing remote stream:", err);
-            setError("Failed to play remote stream");
-          });
-        }
-      };
-    }
     return () => {
       // Clean up
       if (blobUrl.current) {
@@ -556,88 +517,13 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
         localStream.current.getTracks().forEach((track) => track.stop());
       }
 
-      if (peerConnection.current) {
-        peerConnection.current.close();
-      }
+      webrtcService.cleanup();
+      webrtcInitialized.current = false;
     };
-  }, [chatId, handleReconnect, type]);
+  }, [chatId, handleReconnect, user.id, userId1]);
 
-  /* --- WebSocket Signaling Logic --- */
-  useEffect(() => {
-    // Handlers for WebSocket signaling
-    const handleOffer = async (data: any) => {
-      console.log("Received offer");
-      if (type === "watcher" && peerConnection.current) {
-        try {
-          await peerConnection.current.setRemoteDescription(
-            new RTCSessionDescription(data.sdp)
-          );
-          console.log("Set remote description from offer");
-
-          const answer = await peerConnection.current.createAnswer();
-          await peerConnection.current.setLocalDescription(answer);
-          console.log("Created and set local answer");
-
-          wsService.send(`${chatId}`, "sync-answer", { sdp: answer });
-          console.log("Sent answer");
-        } catch (err) {
-          console.error("Error handling offer:", err);
-          setError("Failed to establish connection");
-        }
-      }
-    };
-
-    const handleAnswer = async (data: any) => {
-      console.log("Received answer");
-      if (type === "host" && peerConnection.current) {
-        try {
-          await peerConnection.current.setRemoteDescription(
-            new RTCSessionDescription(data.sdp)
-          );
-          console.log("Set remote description from answer");
-        } catch (err) {
-          console.error("Error handling answer:", err);
-          setError("Failed to establish connection");
-        }
-      }
-    };
-
-    const handleIceCandidate = async (data: any) => {
-      console.log(`Received ICE candidate `);
-      console.log({ data });
-      try {
-        const candidate = new RTCIceCandidate(data.candidate);
-        console.log({ candidate });
-        await peerConnection.current?.addIceCandidate(candidate);
-        console.log("Added ICE candidate");
-      } catch (err) {
-        console.error("Error adding ICE candidate:", err);
-      }
-    };
-    // Subscribe to WebSocket events for signaling
-
-    const unsubscribeOffer = wsService.subscribe(
-      chatId,
-      "sync-offer",
-      handleOffer
-    );
-    const unsubscribeAnswer = wsService.subscribe(
-      chatId,
-      "sync-answer",
-      handleAnswer
-    );
-    const unsubscribeIceCandidate = wsService.subscribe(
-      chatId,
-      "sync-ice-candidate",
-      handleIceCandidate
-    );
-
-    return () => {
-      unsubscribeOffer();
-      unsubscribeAnswer();
-      unsubscribeIceCandidate();
-    };
-  }, [chatId, type]);
+  // Note: WebSocket signaling for offer/answer/ICE is now handled by PeerJS
+  // We only use WebSocket for video sync (timestamp, play/pause state)
 
   // Sync video state to server
   const syncVideoState = useCallback(async () => {
@@ -672,7 +558,7 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
     }
   }, [chatId, type]);
 
-  /* --- Host: Stream Setup and Offer Creation --- */
+  /* --- Host: Stream Setup --- */
   const updateUrl = useCallback(
     async (file: File | null) => {
       if (!file || type !== "host") return;
@@ -687,48 +573,27 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
         blobUrl.current = URL.createObjectURL(file);
         setUrl(blobUrl.current);
 
-        if (type === "host" && peerConnection.current) {
-          console.log("Starting host stream setup");
+        console.log("Starting host stream setup");
 
-          try {
-            // Remove existing tracks
-            const senders = peerConnection.current.getSenders();
-            senders.forEach((sender) =>
-              peerConnection.current?.removeTrack(sender)
-            );
-            console.log("Removed existing tracks");
+        try {
+          localStream.current = await fileToMediaStream(file);
+          console.log("Created media stream from file");
 
-            localStream.current = await fileToMediaStream(file);
-            console.log("Created media stream from file");
+          // Send stream via PeerJS
+          webrtcService.sendStream(localStream.current);
+          console.log("Stream sent via PeerJS");
 
-            localStream.current.getTracks().forEach((track) => {
-              console.log("Adding track:", track.kind);
-              peerConnection.current?.addTrack(track, localStream.current!);
-            });
-
-            const offer = await peerConnection.current.createOffer({
-              offerToReceiveVideo: true,
-              offerToReceiveAudio: true,
-            });
-
-            await peerConnection.current.setLocalDescription(offer);
-            console.log("Created and set local offer");
-
-            wsService.send(`${chatId}`, "sync-offer", { sdp: offer });
-            console.log("Sent offer");
-
-            await syncVideoState();
-          } catch (err) {
-            setError("Failed to initialize video stream");
-            console.error("Error setting up host stream:", err);
-          }
+          await syncVideoState();
+        } catch (err) {
+          setError("Failed to initialize video stream");
+          console.error("Error setting up host stream:", err);
         }
       } catch (err) {
         setError("Invalid video format or file is corrupted");
         console.error("Error processing video file:", err);
       }
     },
-    [chatId, type, syncVideoState]
+    [type, syncVideoState]
   );
 
   // Modified fileToMediaStream function with better error handling
@@ -998,9 +863,38 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
       }}
       onMouseLeave={() => setIsHovering(false)}
     >
+      {/* Connection quality indicator */}
+      {connectionState === "connected" && (
+        <div
+          className={`absolute top-2 right-2 z-10 flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${
+            connectionQuality === "excellent"
+              ? "bg-green-100 text-green-700"
+              : connectionQuality === "good"
+              ? "bg-yellow-100 text-yellow-700"
+              : "bg-red-100 text-red-700"
+          }`}
+        >
+          <Wifi className="h-3 w-3" />
+          <span>{rtt}ms</span>
+        </div>
+      )}
+
+      {/* Connection status for watcher */}
       {type === "watcher" && connectionState !== "connected" && (
-        <div className="p-2 bg-yellow-100 text-yellow-700 rounded-lg">
-          Connection Status: {connectionState}
+        <div className="p-2 bg-yellow-100 text-yellow-700 rounded-lg flex items-center gap-2">
+          {connectionState === "connecting" ? (
+            <>
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-yellow-700 border-t-transparent" />
+              <span>Connecting to host...</span>
+            </>
+          ) : connectionState === "disconnected" || connectionState === "failed" ? (
+            <>
+              <WifiOff className="h-4 w-4" />
+              <span>Connection lost. Reconnecting...</span>
+            </>
+          ) : (
+            <span>Waiting for connection...</span>
+          )}
         </div>
       )}
 
