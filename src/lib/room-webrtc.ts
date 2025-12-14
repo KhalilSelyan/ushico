@@ -81,7 +81,7 @@ class RoomWebRTCService {
 
     return new Promise((resolve, reject) => {
       const peerOptions = {
-        debug: 1,
+        debug: 2, // Increase debug level for more logs
         config: {
           iceServers: this.ICE_SERVERS,
         },
@@ -89,6 +89,8 @@ class RoomWebRTCService {
 
       // Host gets known ID, viewers get random ID
       const peerId = isHost ? `ushico-room-${roomId}` : undefined;
+      console.log("[RoomWebRTC] Creating peer with ID:", peerId || "(random)", "isHost:", isHost);
+
       this.peer = peerId
         ? new Peer(peerId, peerOptions)
         : new Peer(peerOptions);
@@ -257,7 +259,7 @@ class RoomWebRTCService {
   }
 
   /**
-   * Viewer: Connect to host
+   * Viewer: Connect to host with retry logic
    */
   private connectToHost(): void {
     if (!this.peer) return;
@@ -268,6 +270,20 @@ class RoomWebRTCService {
     // Create data connection for heartbeat
     this.hostDataConnection = this.peer.connect(hostPeerId, { reliable: true });
     this.setupViewerDataConnection(this.hostDataConnection);
+
+    // Set a timeout to detect if connection fails silently
+    const connectionTimeout = setTimeout(() => {
+      if (!this.hostDataConnection?.open) {
+        console.warn("[RoomWebRTC] Connection timeout, host may not be available");
+        this.options.onError?.("Could not connect to host. They may not be streaming yet.");
+        this.options.onConnectionStateChange?.("disconnected");
+      }
+    }, 10000); // 10 second timeout
+
+    // Clear timeout if connection opens
+    this.hostDataConnection.on("open", () => {
+      clearTimeout(connectionTimeout);
+    });
 
     // Listen for incoming calls from host
     this.peer.on("call", (call) => {
