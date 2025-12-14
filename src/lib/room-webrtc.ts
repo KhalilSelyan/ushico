@@ -258,6 +258,10 @@ class RoomWebRTCService {
     }, this.HEARTBEAT_INTERVAL);
   }
 
+  private connectionRetryCount = 0;
+  private readonly MAX_CONNECTION_RETRIES = 5;
+  private readonly CONNECTION_RETRY_DELAY = 2000;
+
   /**
    * Viewer: Connect to host with retry logic
    */
@@ -265,33 +269,44 @@ class RoomWebRTCService {
     if (!this.peer) return;
 
     const hostPeerId = `ushico-room-${this.roomId}`;
-    console.log("[RoomWebRTC] Connecting to host:", hostPeerId);
+    console.log("[RoomWebRTC] Connecting to host:", hostPeerId, "attempt:", this.connectionRetryCount + 1);
 
     // Create data connection for heartbeat
     this.hostDataConnection = this.peer.connect(hostPeerId, { reliable: true });
-    this.setupViewerDataConnection(this.hostDataConnection);
 
     // Set a timeout to detect if connection fails silently
     const connectionTimeout = setTimeout(() => {
       if (!this.hostDataConnection?.open) {
-        console.warn("[RoomWebRTC] Connection timeout, host may not be available");
-        this.options.onError?.("Could not connect to host. They may not be streaming yet.");
-        this.options.onConnectionStateChange?.("disconnected");
+        this.connectionRetryCount++;
+        if (this.connectionRetryCount < this.MAX_CONNECTION_RETRIES) {
+          console.warn(`[RoomWebRTC] Connection timeout, retrying (${this.connectionRetryCount}/${this.MAX_CONNECTION_RETRIES})...`);
+          this.hostDataConnection?.close();
+          setTimeout(() => this.connectToHost(), this.CONNECTION_RETRY_DELAY);
+        } else {
+          console.error("[RoomWebRTC] Max retries reached, host not available");
+          this.options.onError?.("Could not connect to host. They may not be streaming yet.");
+          this.options.onConnectionStateChange?.("disconnected");
+        }
       }
-    }, 10000); // 10 second timeout
+    }, 5000); // 5 second timeout per attempt
 
-    // Clear timeout if connection opens
+    // Clear timeout and reset retry count if connection opens
     this.hostDataConnection.on("open", () => {
       clearTimeout(connectionTimeout);
+      this.connectionRetryCount = 0;
     });
 
-    // Listen for incoming calls from host
-    this.peer.on("call", (call) => {
-      console.log("[RoomWebRTC] Receiving stream from host");
-      this.hostMediaConnection = call;
-      call.answer(); // Answer without stream (one-way)
-      this.setupViewerMediaConnection(call);
-    });
+    this.setupViewerDataConnection(this.hostDataConnection);
+
+    // Listen for incoming calls from host (only set up once)
+    if (!this.peer.listeners("call").length) {
+      this.peer.on("call", (call) => {
+        console.log("[RoomWebRTC] Receiving stream from host");
+        this.hostMediaConnection = call;
+        call.answer(); // Answer without stream (one-way)
+        this.setupViewerMediaConnection(call);
+      });
+    }
   }
 
   /**
@@ -591,6 +606,7 @@ class RoomWebRTCService {
 
     this.rtt = 0;
     this.lastPongTime = Date.now();
+    this.connectionRetryCount = 0;
   }
 }
 
