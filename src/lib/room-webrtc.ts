@@ -440,8 +440,17 @@ class RoomWebRTCService {
     }
   }
 
+  // File streaming resources (need cleanup)
+  private fileStreamVideo: HTMLVideoElement | null = null;
+  private fileStreamCanvas: HTMLCanvasElement | null = null;
+  private fileStreamAnimationId: number | null = null;
+  private fileStreamAudioCtx: AudioContext | null = null;
+  private fileStreamBlobUrl: string | null = null;
+
   /**
    * Host: Stream from a video file
+   * Always uses canvas to re-encode video for WebRTC compatibility
+   * (Direct captureStream() causes green screen on desktop Chrome with certain codecs)
    */
   async startFileStream(file: File): Promise<MediaStream> {
     if (!this.isHost) {
@@ -449,60 +458,98 @@ class RoomWebRTCService {
     }
 
     return new Promise((resolve, reject) => {
+      // Cleanup any previous file stream resources
+      this.cleanupFileStream();
+
       const video = document.createElement("video");
       const blobUrl = URL.createObjectURL(file);
       video.src = blobUrl;
       video.muted = true;
       video.playsInline = true;
+      video.crossOrigin = "anonymous";
+
+      this.fileStreamVideo = video;
+      this.fileStreamBlobUrl = blobUrl;
 
       video.onloadedmetadata = async () => {
         try {
           await video.play();
 
-          // Try captureStream first, fall back to canvas
-          let stream: MediaStream;
-          if ("captureStream" in video) {
-            stream = (video as any).captureStream();
-          } else if ("mozCaptureStream" in video) {
-            stream = (video as any).mozCaptureStream();
-          } else {
-            // Fallback: use canvas
-            const canvas = document.createElement("canvas");
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext("2d")!;
+          // Always use canvas to re-encode video for WebRTC compatibility
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d")!;
 
-            const drawFrame = () => {
-              if (!video.paused && !video.ended) {
-                ctx.drawImage(video, 0, 0);
-                requestAnimationFrame(drawFrame);
-              }
-            };
-            drawFrame();
+          this.fileStreamCanvas = canvas;
 
-            stream = canvas.captureStream(30);
+          const drawFrame = () => {
+            if (video && !video.paused && !video.ended) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              this.fileStreamAnimationId = requestAnimationFrame(drawFrame);
+            }
+          };
+          drawFrame();
 
-            // Add audio if present
+          // Capture canvas at 30fps
+          const stream = canvas.captureStream(30);
+
+          // Add audio from the video element
+          try {
             const audioCtx = new AudioContext();
+            this.fileStreamAudioCtx = audioCtx;
             const source = audioCtx.createMediaElementSource(video);
             const dest = audioCtx.createMediaStreamDestination();
             source.connect(dest);
-            source.connect(audioCtx.destination);
-            dest.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
+            source.connect(audioCtx.destination); // Also play locally
+            dest.stream.getAudioTracks().forEach((track) => {
+              stream.addTrack(track);
+            });
+            console.log("[RoomWebRTC] File stream: audio tracks added");
+          } catch (audioErr) {
+            console.warn("[RoomWebRTC] Could not add audio to file stream:", audioErr);
           }
+
+          console.log("[RoomWebRTC] File stream created via canvas, tracks:",
+            stream.getTracks().map(t => `${t.kind}:${t.label}`).join(", "));
 
           this.setStream(stream);
           resolve(stream);
         } catch (err) {
+          this.cleanupFileStream();
           reject(err);
         }
       };
 
       video.onerror = () => {
-        URL.revokeObjectURL(blobUrl);
+        this.cleanupFileStream();
         reject(new Error("Failed to load video file"));
       };
     });
+  }
+
+  /**
+   * Cleanup file stream resources
+   */
+  private cleanupFileStream(): void {
+    if (this.fileStreamAnimationId) {
+      cancelAnimationFrame(this.fileStreamAnimationId);
+      this.fileStreamAnimationId = null;
+    }
+    if (this.fileStreamAudioCtx) {
+      this.fileStreamAudioCtx.close().catch(() => {});
+      this.fileStreamAudioCtx = null;
+    }
+    if (this.fileStreamVideo) {
+      this.fileStreamVideo.pause();
+      this.fileStreamVideo.src = "";
+      this.fileStreamVideo = null;
+    }
+    if (this.fileStreamBlobUrl) {
+      URL.revokeObjectURL(this.fileStreamBlobUrl);
+      this.fileStreamBlobUrl = null;
+    }
+    this.fileStreamCanvas = null;
   }
 
   /**
@@ -584,6 +631,7 @@ class RoomWebRTCService {
 
     this.stopHeartbeat();
     this.stopStream();
+    this.cleanupFileStream();
 
     // Close all viewer connections (host)
     this.viewers.forEach((viewer) => {
