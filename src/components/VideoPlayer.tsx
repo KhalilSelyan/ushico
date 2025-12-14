@@ -11,6 +11,12 @@ import {
   Volume2,
   VolumeX,
   Volume1,
+  Monitor,
+  Video,
+  FileVideo,
+  Wifi,
+  WifiOff,
+  Link,
 } from "lucide-react";
 import {
   getWebSocketService,
@@ -21,8 +27,16 @@ import { nanoid } from "nanoid";
 import { useVideoReactions } from "@/hooks/useVideoReactions";
 import { FloatingReactions } from "@/components/FloatingReactions";
 import { createAnnouncements } from "@/utils/announcements";
+import {
+  RoomWebRTCService,
+  ConnectionState,
+  ConnectionQuality,
+} from "@/lib/room-webrtc";
 
 /* Interfaces and types */
+
+type StreamMode = "url" | "webrtc";
+type WebRTCSource = "screen" | "camera" | "file";
 
 interface VideoPlayerProps {
   roomId: string; // Changed from chatId
@@ -128,6 +142,196 @@ const URLInput: React.FC<URLInputProps> = ({
         </div>
       )}
     </>
+  );
+};
+
+/* Stream Mode Selector - Host only */
+interface StreamModeSelectorProps {
+  mode: StreamMode;
+  onModeChange: (mode: StreamMode) => void;
+  showInterface: boolean;
+}
+
+const StreamModeSelector: React.FC<StreamModeSelectorProps> = ({
+  mode,
+  onModeChange,
+  showInterface,
+}) => {
+  if (!showInterface) return null;
+
+  return (
+    <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-lg">
+      <span className="text-xs text-zinc-400">Mode:</span>
+      <button
+        onClick={() => onModeChange("url")}
+        className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
+          mode === "url"
+            ? "bg-indigo-600 text-white"
+            : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+        }`}
+      >
+        <Link className="w-4 h-4" />
+        URL
+      </button>
+      <button
+        onClick={() => onModeChange("webrtc")}
+        className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
+          mode === "webrtc"
+            ? "bg-indigo-600 text-white"
+            : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+        }`}
+      >
+        <Wifi className="w-4 h-4" />
+        Stream
+      </button>
+    </div>
+  );
+};
+
+/* WebRTC Source Selector - Host only when in webrtc mode */
+interface WebRTCSourceSelectorProps {
+  onSelectSource: (source: WebRTCSource, file?: File) => void;
+  isStreaming: boolean;
+  onStopStream: () => void;
+  connectionState: ConnectionState;
+  viewerCount: number;
+}
+
+const WebRTCSourceSelector: React.FC<WebRTCSourceSelectorProps> = ({
+  onSelectSource,
+  isStreaming,
+  onStopStream,
+  connectionState,
+  viewerCount,
+}) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onSelectSource("file", file);
+    }
+  };
+
+  if (isStreaming) {
+    return (
+      <div className="flex items-center gap-4 p-3 bg-zinc-800 rounded-lg">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+          <span className="text-sm text-white">Streaming</span>
+        </div>
+        <div className="flex items-center gap-1 text-sm text-zinc-400">
+          <Wifi className="w-4 h-4" />
+          {viewerCount} viewer{viewerCount !== 1 ? "s" : ""}
+        </div>
+        <button
+          onClick={onStopStream}
+          className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+        >
+          Stop
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-3 bg-zinc-800 rounded-lg">
+      <div className="text-sm text-zinc-400">Select stream source:</div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => onSelectSource("screen")}
+          disabled={connectionState !== "connected"}
+          className="flex items-center gap-2 px-4 py-2 bg-zinc-700 text-white rounded hover:bg-zinc-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Monitor className="w-5 h-5" />
+          Share Screen
+        </button>
+        <button
+          onClick={() => onSelectSource("camera")}
+          disabled={connectionState !== "connected"}
+          className="flex items-center gap-2 px-4 py-2 bg-zinc-700 text-white rounded hover:bg-zinc-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Video className="w-5 h-5" />
+          Camera
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={connectionState !== "connected"}
+          className="flex items-center gap-2 px-4 py-2 bg-zinc-700 text-white rounded hover:bg-zinc-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <FileVideo className="w-5 h-5" />
+          Video File
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+      </div>
+      {connectionState !== "connected" && (
+        <div className="text-xs text-yellow-500">
+          Waiting for connection...
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* WebRTC Connection Status - Viewer */
+interface WebRTCViewerStatusProps {
+  connectionState: ConnectionState;
+  rtcQuality: ConnectionQuality;
+}
+
+const WebRTCViewerStatus: React.FC<WebRTCViewerStatusProps> = ({
+  connectionState,
+  rtcQuality,
+}) => {
+  if (connectionState === "connected") {
+    return (
+      <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-lg">
+        <Wifi
+          className={`w-4 h-4 ${
+            rtcQuality === "excellent"
+              ? "text-green-500"
+              : rtcQuality === "good"
+              ? "text-yellow-500"
+              : "text-red-500"
+          }`}
+        />
+        <span className="text-sm text-zinc-300">Connected to host stream</span>
+      </div>
+    );
+  }
+
+  if (connectionState === "connecting") {
+    return (
+      <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-lg">
+        <div className="w-4 h-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+        <span className="text-sm text-zinc-300">Connecting to host...</span>
+      </div>
+    );
+  }
+
+  if (connectionState === "disconnected" || connectionState === "failed") {
+    return (
+      <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-lg">
+        <WifiOff className="w-4 h-4 text-red-500" />
+        <span className="text-sm text-zinc-300">
+          {connectionState === "failed"
+            ? "Connection failed"
+            : "Disconnected from host"}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-lg">
+      <span className="text-sm text-zinc-400">Waiting for host to stream...</span>
+    </div>
   );
 };
 
@@ -434,6 +638,15 @@ const VideoPlayer = ({
   const [currentVideoId, setCurrentVideoId] = useState<string>("");
   const lastKnownUrl = useRef<string>("");
 
+  // WebRTC state
+  const [streamMode, setStreamMode] = useState<StreamMode>("url");
+  const [rtcConnectionState, setRtcConnectionState] = useState<ConnectionState>("idle");
+  const [rtcQuality, setRtcQuality] = useState<ConnectionQuality>("excellent");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [viewerCount, setViewerCount] = useState(0);
+  const webrtcServiceRef = useRef<RoomWebRTCService | null>(null);
+  const rtcVideoRef = useRef<HTMLVideoElement>(null);
+
   const internalVideoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = externalVideoRef || internalVideoRef;
   const lastSyncTime = useRef<number>(0);
@@ -487,6 +700,137 @@ const VideoPlayer = ({
 
     void syncRoomState();
   }, [roomId, user.id, userRole, participants]);
+
+  // Initialize WebRTC when in stream mode
+  useEffect(() => {
+    if (streamMode !== "webrtc") {
+      // Cleanup WebRTC when switching away
+      if (webrtcServiceRef.current) {
+        webrtcServiceRef.current.cleanup();
+        webrtcServiceRef.current = null;
+        setRtcConnectionState("idle");
+        setIsStreaming(false);
+        setViewerCount(0);
+      }
+      return;
+    }
+
+    const initWebRTC = async () => {
+      try {
+        const service = new RoomWebRTCService();
+        webrtcServiceRef.current = service;
+
+        const isHost = userRole === "host";
+
+        await service.init(roomId, isHost, {
+          onConnectionStateChange: (state) => {
+            console.log("[VideoPlayer] RTC connection state:", state);
+            setRtcConnectionState(state);
+          },
+          onRemoteStream: (stream) => {
+            console.log("[VideoPlayer] Received remote stream");
+            if (rtcVideoRef.current) {
+              rtcVideoRef.current.srcObject = stream;
+              rtcVideoRef.current.play().catch((err) => {
+                console.error("Error playing RTC stream:", err);
+                setError("Failed to play stream. Click to retry.");
+              });
+            }
+          },
+          onConnectionQualityChange: (quality) => {
+            setRtcQuality(quality);
+          },
+          onError: (errorMsg) => {
+            console.error("[VideoPlayer] RTC error:", errorMsg);
+            setError(errorMsg);
+          },
+          onViewerCountChange: (count) => {
+            setViewerCount(count);
+          },
+        });
+      } catch (err) {
+        console.error("Failed to initialize WebRTC:", err);
+        setError("Failed to start stream connection");
+      }
+    };
+
+    void initWebRTC();
+
+    return () => {
+      if (webrtcServiceRef.current) {
+        webrtcServiceRef.current.cleanup();
+        webrtcServiceRef.current = null;
+      }
+    };
+  }, [streamMode, roomId, userRole]);
+
+  // Handle stream source selection (host only)
+  const handleSelectSource = useCallback(
+    async (source: WebRTCSource, file?: File) => {
+      if (!webrtcServiceRef.current || userRole !== "host") return;
+
+      try {
+        setError(null);
+        let stream: MediaStream;
+
+        switch (source) {
+          case "screen":
+            stream = await webrtcServiceRef.current.startScreenShare();
+            break;
+          case "camera":
+            stream = await webrtcServiceRef.current.startCamera();
+            break;
+          case "file":
+            if (!file) {
+              setError("No file selected");
+              return;
+            }
+            stream = await webrtcServiceRef.current.startFileStream(file);
+            break;
+          default:
+            return;
+        }
+
+        // Show local preview
+        if (rtcVideoRef.current) {
+          rtcVideoRef.current.srcObject = stream;
+          rtcVideoRef.current.muted = true; // Mute local preview
+          await rtcVideoRef.current.play();
+        }
+
+        setIsStreaming(true);
+        announcements.hostStartedStreaming?.(user.name || "Host");
+      } catch (err) {
+        console.error("Failed to start stream:", err);
+        setError(
+          source === "screen"
+            ? "Screen share was cancelled or denied"
+            : source === "camera"
+            ? "Camera access denied"
+            : "Failed to stream video file"
+        );
+      }
+    },
+    [userRole, announcements, user.name]
+  );
+
+  // Handle stop streaming (host only)
+  const handleStopStream = useCallback(() => {
+    if (!webrtcServiceRef.current) return;
+
+    webrtcServiceRef.current.stopStream();
+    setIsStreaming(false);
+
+    if (rtcVideoRef.current) {
+      rtcVideoRef.current.srcObject = null;
+    }
+  }, []);
+
+  // Handle mode change
+  const handleModeChange = useCallback((mode: StreamMode) => {
+    setStreamMode(mode);
+    setError(null);
+  }, []);
 
   // Sync video state to server
   const batchedSync = useCallback(async () => {
@@ -874,14 +1218,44 @@ const VideoPlayer = ({
         isCustomFullscreen={isCustomFullscreen}
       />
 
-      {/* URL input */}
-      <URLInput
-        url={url}
-        updateUrl={updateUrl}
-        isSynced={isSynced}
-        showInterface={showInterface}
-        isHost={type === "host"}
-      />
+      {/* Mode selector - Host only */}
+      {type === "host" && showInterface && (
+        <StreamModeSelector
+          mode={streamMode}
+          onModeChange={handleModeChange}
+          showInterface={showInterface}
+        />
+      )}
+
+      {/* URL input - only in URL mode */}
+      {streamMode === "url" && (
+        <URLInput
+          url={url}
+          updateUrl={updateUrl}
+          isSynced={isSynced}
+          showInterface={showInterface}
+          isHost={type === "host"}
+        />
+      )}
+
+      {/* WebRTC controls - Host in stream mode */}
+      {streamMode === "webrtc" && type === "host" && showInterface && (
+        <WebRTCSourceSelector
+          onSelectSource={handleSelectSource}
+          isStreaming={isStreaming}
+          onStopStream={handleStopStream}
+          connectionState={rtcConnectionState}
+          viewerCount={viewerCount}
+        />
+      )}
+
+      {/* WebRTC status - Viewer in stream mode */}
+      {streamMode === "webrtc" && type === "watcher" && showInterface && (
+        <WebRTCViewerStatus
+          connectionState={rtcConnectionState}
+          rtcQuality={rtcQuality}
+        />
+      )}
 
       {/* Participants */}
       {showInterface && (
@@ -907,21 +1281,39 @@ const VideoPlayer = ({
           isCustomFullscreen ? "w-full h-full" : "h-4/5 w-full bg-gray-500/5"
         }`}
         onPointerDown={
-          type === "host" ? async () => await togglePlay() : undefined
+          type === "host" && streamMode === "url"
+            ? async () => await togglePlay()
+            : undefined
         }
       >
-        {/* Video Element */}
-        <VideoElement
-          sourceRef={sourceRef}
-          url={url}
-          setError={setError}
-          syncVideoState={batchedSync}
-          isCustomFullscreen={isCustomFullscreen}
-          setCurrentTime={setCurrentTime}
-          setDuration={setDuration}
-          setIsPlaying={setIsPlaying}
-          type={type}
-        />
+        {/* URL-based Video Element */}
+        {streamMode === "url" && (
+          <VideoElement
+            sourceRef={sourceRef}
+            url={url}
+            setError={setError}
+            syncVideoState={batchedSync}
+            isCustomFullscreen={isCustomFullscreen}
+            setCurrentTime={setCurrentTime}
+            setDuration={setDuration}
+            setIsPlaying={setIsPlaying}
+            type={type}
+          />
+        )}
+
+        {/* WebRTC Video Element */}
+        {streamMode === "webrtc" && (
+          <video
+            ref={rtcVideoRef}
+            className={`${
+              isCustomFullscreen
+                ? "h-full w-full object-contain"
+                : "h-full min-h-full w-auto min-w-full max-w-none border-2 border-black portrait:h-2/5 portrait:w-full landscape:h-full landscape:w-3/5"
+            }`}
+            playsInline
+            autoPlay
+          />
+        )}
 
         {/* Floating Reactions */}
         <FloatingReactions
