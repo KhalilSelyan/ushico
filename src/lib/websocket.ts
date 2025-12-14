@@ -45,6 +45,9 @@ export type WebSocketEvent =
   | "get_room_presence"        // Request current presence of all room participants
   | "user_presence_updated"    // Broadcasted when someone's presence changes
   | "room_presence_status"     // Response with all participants' presence states
+  // WEBRTC STREAMING
+  | "stream_mode_changed"      // Host changed stream mode (url/webrtc)
+  | "stream_mode_status"       // Response with current stream mode
 
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -407,6 +410,21 @@ export function requestRoomPresence(roomId: string, userId: string): void {
   const wsService = getWebSocketService(userId);
   wsService.send(`room-${roomId}`, "get_room_presence", {
     roomId
+  });
+}
+
+// WebRTC Streaming helper functions
+export function sendStreamModeChange(
+  roomId: string,
+  userId: string,
+  mode: "url" | "webrtc"
+): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "stream_mode_changed", {
+    roomId,
+    userId,
+    mode,
+    timestamp: new Date().toISOString()
   });
 }
 

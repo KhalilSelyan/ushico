@@ -22,6 +22,7 @@ import {
   getWebSocketService,
   RoomSyncData,
   ErrorResponse,
+  sendStreamModeChange,
 } from "@/lib/websocket";
 import { nanoid } from "nanoid";
 import { useVideoReactions } from "@/hooks/useVideoReactions";
@@ -826,11 +827,16 @@ const VideoPlayer = ({
     }
   }, []);
 
-  // Handle mode change
+  // Handle mode change (host only broadcasts)
   const handleModeChange = useCallback((mode: StreamMode) => {
     setStreamMode(mode);
     setError(null);
-  }, []);
+
+    // Broadcast mode change to other participants
+    if (userRole === "host") {
+      sendStreamModeChange(roomId, user.id, mode);
+    }
+  }, [userRole, roomId, user.id]);
 
   // Sync video state to server
   const batchedSync = useCallback(async () => {
@@ -932,6 +938,7 @@ const VideoPlayer = ({
     let unsubscribe1: (() => void) | undefined;
     let unsubscribe2: (() => void) | undefined;
     let unsubscribeReactions: (() => void) | undefined;
+    let unsubscribeStreamMode: (() => void) | undefined;
     const setupSubscription = async () => {
       // Subscribe to sync events
       unsubscribe1 = await wsService.subscribe(channel, "host_sync", (data) => {
@@ -1012,6 +1019,20 @@ const VideoPlayer = ({
         }
       );
 
+      // Subscribe to stream mode changes (viewers only)
+      unsubscribeStreamMode = await wsService.subscribe(
+        channel,
+        "stream_mode_changed",
+        (data: { roomId: string; userId: string; mode: StreamMode }) => {
+          console.log("[VideoPlayer] Stream mode changed:", data.mode);
+          // Only viewers should react to this
+          if (type === "watcher") {
+            setStreamMode(data.mode);
+            setError(null);
+          }
+        }
+      );
+
       // Note: participant_joined, participant_left, host_transferred events
       // would be handled by parent components that manage participant lists
     };
@@ -1022,6 +1043,7 @@ const VideoPlayer = ({
       unsubscribe1?.();
       unsubscribe2?.();
       unsubscribeReactions?.();
+      unsubscribeStreamMode?.();
     };
   }, [roomId, type, url, user.id]);
 
