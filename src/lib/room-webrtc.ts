@@ -50,6 +50,7 @@ class RoomWebRTCService {
   private hostMediaConnection: MediaConnection | null = null;
   private lastPongTime: number = Date.now();
   private rtt: number = 0;
+  private currentPeerId: string | null = null;
 
   private readonly ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
@@ -67,6 +68,9 @@ class RoomWebRTCService {
    * Host creates peer with known ID: ushico-room-{roomId}
    * Viewers create peer with random ID and connect to host
    */
+  private initRetryCount = 0;
+  private readonly MAX_INIT_RETRIES = 3;
+
   async init(
     roomId: string,
     isHost: boolean,
@@ -76,27 +80,39 @@ class RoomWebRTCService {
     this.isHost = isHost;
     this.roomId = roomId;
 
-    // Cleanup any existing connection
-    this.cleanup();
+    // Cleanup any existing connection and wait for it to fully close
+    await this.cleanupAsync();
 
     return new Promise((resolve, reject) => {
       const peerOptions = {
-        debug: 2, // Increase debug level for more logs
+        debug: 2,
         config: {
           iceServers: this.ICE_SERVERS,
         },
       };
 
-      // Host gets known ID, viewers get random ID
-      const peerId = isHost ? `ushico-room-${roomId}` : undefined;
+      // Host gets known ID (with retry suffix if needed), viewers get random ID
+      let peerId: string | undefined;
+      if (isHost) {
+        // Add retry suffix to avoid "ID taken" errors on reconnect
+        peerId = this.initRetryCount > 0
+          ? `ushico-room-${roomId}-${this.initRetryCount}`
+          : `ushico-room-${roomId}`;
+      }
+
       console.log("[RoomWebRTC] Creating peer with ID:", peerId || "(random)", "isHost:", isHost);
 
       this.peer = peerId
         ? new Peer(peerId, peerOptions)
         : new Peer(peerOptions);
 
+      // Store the actual peer ID for viewers to connect to
+      this.currentPeerId = peerId || null;
+
       this.peer.on("open", (id) => {
         console.log("[RoomWebRTC] Peer opened with ID:", id);
+        this.currentPeerId = id;
+        this.initRetryCount = 0; // Reset on successful connection
         this.options.onConnectionStateChange?.("connecting");
 
         if (isHost) {
@@ -109,9 +125,24 @@ class RoomWebRTCService {
       });
 
       this.peer.on("error", (err) => {
-        console.error("[RoomWebRTC] Peer error:", err);
+        console.error("[RoomWebRTC] Peer error:", err.type, err.message);
 
-        // Handle "peer unavailable" error for viewers
+        // Handle "unavailable-id" error - ID is still registered on PeerJS server
+        if (err.type === "unavailable-id" && isHost) {
+          this.initRetryCount++;
+          if (this.initRetryCount < this.MAX_INIT_RETRIES) {
+            console.log(`[RoomWebRTC] Peer ID taken, retrying with suffix (${this.initRetryCount})...`);
+            // Destroy current peer and retry with new ID
+            this.peer?.destroy();
+            this.peer = null;
+            setTimeout(() => {
+              this.init(roomId, isHost, options).then(resolve).catch(reject);
+            }, 500);
+            return;
+          }
+        }
+
+        // Handle "peer-unavailable" error for viewers
         if (err.type === "peer-unavailable") {
           this.options.onError?.("Host is not streaming yet. Please wait...");
           this.options.onConnectionStateChange?.("disconnected");
@@ -126,9 +157,26 @@ class RoomWebRTCService {
       this.peer.on("disconnected", () => {
         console.log("[RoomWebRTC] Peer disconnected, attempting reconnect...");
         this.options.onConnectionStateChange?.("disconnected");
-        this.peer?.reconnect();
+        // Only reconnect if peer still exists and isn't destroyed
+        if (this.peer && !this.peer.destroyed) {
+          this.peer.reconnect();
+        }
       });
     });
+  }
+
+  /**
+   * Async cleanup that waits for peer to be fully destroyed
+   */
+  private async cleanupAsync(): Promise<void> {
+    if (this.peer) {
+      const wasDestroyed = this.peer.destroyed;
+      this.cleanup();
+      // Wait a bit for PeerJS server to release the ID
+      if (!wasDestroyed) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
   }
 
   /**
@@ -259,17 +307,25 @@ class RoomWebRTCService {
   }
 
   private connectionRetryCount = 0;
-  private readonly MAX_CONNECTION_RETRIES = 5;
+  private hostIdSuffix = 0;
+  private readonly MAX_CONNECTION_RETRIES = 3;
+  private readonly MAX_HOST_ID_SUFFIX = 3;
   private readonly CONNECTION_RETRY_DELAY = 2000;
 
   /**
    * Viewer: Connect to host with retry logic
+   * Tries different host peer IDs in case host reconnected with a suffix
    */
   private connectToHost(): void {
     if (!this.peer) return;
 
-    const hostPeerId = `ushico-room-${this.roomId}`;
-    console.log("[RoomWebRTC] Connecting to host:", hostPeerId, "attempt:", this.connectionRetryCount + 1);
+    // Try base ID first, then with suffixes (host may have reconnected)
+    const hostPeerId = this.hostIdSuffix > 0
+      ? `ushico-room-${this.roomId}-${this.hostIdSuffix}`
+      : `ushico-room-${this.roomId}`;
+
+    console.log("[RoomWebRTC] Connecting to host:", hostPeerId,
+      `(suffix: ${this.hostIdSuffix}, retry: ${this.connectionRetryCount + 1})`);
 
     // Create data connection for heartbeat
     this.hostDataConnection = this.peer.connect(hostPeerId, { reliable: true });
@@ -278,15 +334,29 @@ class RoomWebRTCService {
     const connectionTimeout = setTimeout(() => {
       if (!this.hostDataConnection?.open) {
         this.connectionRetryCount++;
-        if (this.connectionRetryCount < this.MAX_CONNECTION_RETRIES) {
-          console.warn(`[RoomWebRTC] Connection timeout, retrying (${this.connectionRetryCount}/${this.MAX_CONNECTION_RETRIES})...`);
-          this.hostDataConnection?.close();
-          setTimeout(() => this.connectToHost(), this.CONNECTION_RETRY_DELAY);
-        } else {
-          console.error("[RoomWebRTC] Max retries reached, host not available");
-          this.options.onError?.("Could not connect to host. They may not be streaming yet.");
-          this.options.onConnectionStateChange?.("disconnected");
+
+        // After retries exhausted for this ID, try next suffix
+        if (this.connectionRetryCount >= this.MAX_CONNECTION_RETRIES) {
+          this.connectionRetryCount = 0;
+          this.hostIdSuffix++;
+
+          if (this.hostIdSuffix <= this.MAX_HOST_ID_SUFFIX) {
+            console.warn(`[RoomWebRTC] Trying host ID with suffix ${this.hostIdSuffix}...`);
+            this.hostDataConnection?.close();
+            setTimeout(() => this.connectToHost(), this.CONNECTION_RETRY_DELAY);
+            return;
+          } else {
+            // All suffixes exhausted
+            console.error("[RoomWebRTC] All host IDs tried, host not available");
+            this.options.onError?.("Could not connect to host. They may not be streaming yet.");
+            this.options.onConnectionStateChange?.("disconnected");
+            return;
+          }
         }
+
+        console.warn(`[RoomWebRTC] Connection timeout, retrying (${this.connectionRetryCount}/${this.MAX_CONNECTION_RETRIES})...`);
+        this.hostDataConnection?.close();
+        setTimeout(() => this.connectToHost(), this.CONNECTION_RETRY_DELAY);
       }
     }, 5000); // 5 second timeout per attempt
 
@@ -294,6 +364,7 @@ class RoomWebRTCService {
     this.hostDataConnection.on("open", () => {
       clearTimeout(connectionTimeout);
       this.connectionRetryCount = 0;
+      this.hostIdSuffix = 0; // Reset for future reconnections
     });
 
     this.setupViewerDataConnection(this.hostDataConnection);
@@ -655,6 +726,9 @@ class RoomWebRTCService {
     this.rtt = 0;
     this.lastPongTime = Date.now();
     this.connectionRetryCount = 0;
+    this.hostIdSuffix = 0;
+    this.initRetryCount = 0;
+    this.currentPeerId = null;
   }
 }
 
