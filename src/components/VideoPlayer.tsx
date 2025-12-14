@@ -284,11 +284,13 @@ const WebRTCSourceSelector: React.FC<WebRTCSourceSelectorProps> = ({
 interface WebRTCViewerStatusProps {
   connectionState: ConnectionState;
   rtcQuality: ConnectionQuality;
+  onReconnect?: () => void;
 }
 
 const WebRTCViewerStatus: React.FC<WebRTCViewerStatusProps> = ({
   connectionState,
   rtcQuality,
+  onReconnect,
 }) => {
   if (connectionState === "connected") {
     return (
@@ -325,6 +327,14 @@ const WebRTCViewerStatus: React.FC<WebRTCViewerStatusProps> = ({
             ? "Connection failed"
             : "Disconnected from host"}
         </span>
+        {onReconnect && (
+          <button
+            onClick={onReconnect}
+            className="ml-2 px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
+          >
+            Reconnect
+          </button>
+        )}
       </div>
     );
   }
@@ -703,6 +713,7 @@ const VideoPlayer = ({
   }, [roomId, user.id, userRole, participants]);
 
   // Initialize WebRTC when in stream mode
+  // Uses cancelled flag to prevent state updates after unmount/mode change
   useEffect(() => {
     if (streamMode !== "webrtc") {
       // Cleanup WebRTC when switching away
@@ -716,19 +727,21 @@ const VideoPlayer = ({
       return;
     }
 
+    let cancelled = false;
+    const service = new RoomWebRTCService();
+
     const initWebRTC = async () => {
       try {
-        const service = new RoomWebRTCService();
-        webrtcServiceRef.current = service;
-
         const isHost = userRole === "host";
 
         await service.init(roomId, isHost, {
           onConnectionStateChange: (state) => {
+            if (cancelled) return;
             console.log("[VideoPlayer] RTC connection state:", state);
             setRtcConnectionState(state);
           },
           onRemoteStream: (stream) => {
+            if (cancelled) return;
             console.log("[VideoPlayer] Received remote stream with tracks:", stream.getTracks().map(t => t.kind).join(", "));
             if (rtcVideoRef.current) {
               rtcVideoRef.current.srcObject = stream;
@@ -741,23 +754,36 @@ const VideoPlayer = ({
                   console.log("[VideoPlayer] Play request was interrupted, ignoring");
                   return;
                 }
+                if (cancelled) return;
                 console.error("Error playing RTC stream:", err);
                 setError("Failed to play stream. Click to retry.");
               });
             }
           },
           onConnectionQualityChange: (quality) => {
+            if (cancelled) return;
             setRtcQuality(quality);
           },
           onError: (errorMsg) => {
+            if (cancelled) return;
             console.error("[VideoPlayer] RTC error:", errorMsg);
             setError(errorMsg);
           },
           onViewerCountChange: (count) => {
+            if (cancelled) return;
             setViewerCount(count);
           },
         });
+
+        // Only assign to ref if init completed and we weren't cancelled
+        if (!cancelled) {
+          webrtcServiceRef.current = service;
+        } else {
+          // Cleanup if cancelled during init
+          service.cleanup();
+        }
       } catch (err) {
+        if (cancelled) return;
         console.error("Failed to initialize WebRTC:", err);
         setError("Failed to start stream connection");
       }
@@ -766,12 +792,11 @@ const VideoPlayer = ({
     void initWebRTC();
 
     return () => {
-      if (webrtcServiceRef.current) {
-        webrtcServiceRef.current.cleanup();
-        webrtcServiceRef.current = null;
-      }
+      cancelled = true;
+      service.cleanup();
+      webrtcServiceRef.current = null;
     };
-  }, [streamMode, roomId, userRole]);
+  }, [streamMode, roomId, userRole, volume]);
 
   // Handle stream source selection (host only)
   const handleSelectSource = useCallback(
@@ -834,6 +859,66 @@ const VideoPlayer = ({
       rtcVideoRef.current.srcObject = null;
     }
   }, []);
+
+  // Handle reconnection for viewers when connection fails
+  const handleReconnect = useCallback(async () => {
+    if (userRole === "host") return; // Only for viewers
+
+    setError(null);
+    setRtcConnectionState("connecting");
+
+    // Cleanup existing service
+    if (webrtcServiceRef.current) {
+      webrtcServiceRef.current.cleanup();
+      webrtcServiceRef.current = null;
+    }
+
+    // Clear video element
+    if (rtcVideoRef.current) {
+      rtcVideoRef.current.srcObject = null;
+    }
+
+    // Create new service and reinitialize
+    const service = new RoomWebRTCService();
+
+    try {
+      await service.init(roomId, false, {
+        onConnectionStateChange: (state) => {
+          console.log("[VideoPlayer] Reconnect - RTC connection state:", state);
+          setRtcConnectionState(state);
+        },
+        onRemoteStream: (stream) => {
+          console.log("[VideoPlayer] Reconnect - Received remote stream");
+          if (rtcVideoRef.current) {
+            rtcVideoRef.current.srcObject = stream;
+            rtcVideoRef.current.volume = volume;
+            rtcVideoRef.current.muted = false;
+            rtcVideoRef.current.play().catch((err) => {
+              if (err.name === "AbortError") return;
+              console.error("Error playing RTC stream:", err);
+              setError("Failed to play stream. Click to retry.");
+            });
+          }
+        },
+        onConnectionQualityChange: (quality) => {
+          setRtcQuality(quality);
+        },
+        onError: (errorMsg) => {
+          console.error("[VideoPlayer] Reconnect - RTC error:", errorMsg);
+          setError(errorMsg);
+        },
+        onViewerCountChange: (count) => {
+          setViewerCount(count);
+        },
+      });
+
+      webrtcServiceRef.current = service;
+    } catch (err) {
+      console.error("Failed to reconnect WebRTC:", err);
+      setError("Reconnection failed. Try again.");
+      setRtcConnectionState("failed");
+    }
+  }, [roomId, userRole, volume]);
 
   // Handle mode change (host only broadcasts)
   const handleModeChange = useCallback((mode: StreamMode) => {
@@ -1071,14 +1156,6 @@ const VideoPlayer = ({
     };
   }, [SYNC_INTERVAL, batchedSync, type, connectionQuality]);
 
-  // Periodic sync effect
-  useEffect(() => {
-    if (type !== "host") return;
-    void batchedSync();
-    syncTimeoutRef.current = setInterval(batchedSync, SYNC_INTERVAL);
-    return () => clearInterval(syncTimeoutRef.current);
-  }, [SYNC_INTERVAL, batchedSync, type]);
-
   const toggleCustomFullscreen = useCallback(() => {
     setIsCustomFullscreen((prev) => {
       const newState = !prev;
@@ -1289,6 +1366,7 @@ const VideoPlayer = ({
         <WebRTCViewerStatus
           connectionState={rtcConnectionState}
           rtcQuality={rtcQuality}
+          onReconnect={handleReconnect}
         />
       )}
 
