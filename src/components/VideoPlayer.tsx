@@ -729,9 +729,11 @@ const VideoPlayer = ({
             setRtcConnectionState(state);
           },
           onRemoteStream: (stream) => {
-            console.log("[VideoPlayer] Received remote stream");
+            console.log("[VideoPlayer] Received remote stream with tracks:", stream.getTracks().map(t => t.kind).join(", "));
             if (rtcVideoRef.current) {
               rtcVideoRef.current.srcObject = stream;
+              rtcVideoRef.current.volume = volume; // Apply current volume setting
+              rtcVideoRef.current.muted = false; // Ensure not muted for viewers
               rtcVideoRef.current.play().catch((err) => {
                 // AbortError happens when a new play() interrupts a pending one
                 // This is not a real error, just ignore it
@@ -1179,9 +1181,14 @@ const VideoPlayer = ({
   }, [type, batchedSync, announcements, user.name]);
 
   const handleVolumeChange = useCallback((newVolume: number) => {
-    if (!sourceRef.current) return;
     const clampedVolume = Math.max(0, Math.min(1, newVolume));
-    sourceRef.current.volume = clampedVolume;
+    // Apply volume to whichever video element is active
+    if (sourceRef.current) {
+      sourceRef.current.volume = clampedVolume;
+    }
+    if (rtcVideoRef.current) {
+      rtcVideoRef.current.volume = clampedVolume;
+    }
     setVolume(clampedVolume);
   }, []);
 
