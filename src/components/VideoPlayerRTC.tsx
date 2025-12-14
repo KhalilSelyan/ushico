@@ -1,5 +1,4 @@
 "use client";
-import { User } from "next-auth";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Maximize2,
@@ -12,7 +11,7 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { wsService } from "@/lib/websocket";
+import { getWebSocketService } from "@/lib/websocket";
 import {
   webrtcService,
   ConnectionState,
@@ -23,7 +22,12 @@ import {
 
 interface WebRTCPlayerProps {
   chatId: string;
-  user: User;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image?: string | null;
+  };
   userId1: string;
 }
 
@@ -446,10 +450,12 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
     }
   }, [type]);
 
+  // Get websocket service with user ID
+  const wsService = getWebSocketService(user.id);
+
   useEffect(() => {
     setType(user.id === userId1 ? "host" : "watcher");
-    wsService.setUserId(user.id);
-  }, [user, userId1]);
+  }, [user.id, userId1]);
 
   // Initialize WebRTC with PeerJS
   useEffect(() => {
@@ -549,14 +555,14 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
     }
 
     try {
-      wsService.send(`sync-${chatId}`, "sync", currentState);
+      await wsService.send(`sync-${chatId}`, "sync", currentState);
       setIsSynced(true);
       lastKnownState.current = currentState;
     } catch (err) {
       console.error("Error syncing video state:", err);
       setIsSynced(false);
     }
-  }, [chatId, type]);
+  }, [chatId, type, wsService]);
 
   /* --- Host: Stream Setup --- */
   const updateUrl = useCallback(
@@ -658,8 +664,10 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
   useEffect(() => {
     if (!chatId) return;
 
+    let unsubscribeFn: (() => void) | null = null;
+
     const channel = `sync-${chatId}`;
-    const unsubscribe = wsService.subscribe(channel, "sync", (data) => {
+    wsService.subscribe(channel, "sync", (data) => {
       if (type !== "watcher" || !videoRef.current) return;
 
       // Update last known state
@@ -689,12 +697,14 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
       };
 
       void syncActions();
+    }).then((unsub) => {
+      unsubscribeFn = unsub;
     });
 
     return () => {
-      unsubscribe();
+      unsubscribeFn?.();
     };
-  }, [chatId, type, url]);
+  }, [chatId, type, url, wsService]);
 
   // Periodic sync effect
   useEffect(() => {
