@@ -308,6 +308,8 @@ class RoomWebRTCService {
 
   private connectionRetryCount = 0;
   private hostIdSuffix = 0;
+  private callListenerRegistered = false;
+  private connectionTimeoutId: NodeJS.Timeout | null = null;
   private readonly MAX_CONNECTION_RETRIES = 3;
   private readonly MAX_HOST_ID_SUFFIX = 3;
   private readonly CONNECTION_RETRY_DELAY = 2000;
@@ -318,6 +320,22 @@ class RoomWebRTCService {
    */
   private connectToHost(): void {
     if (!this.peer) return;
+
+    // Clear any existing connection timeout
+    if (this.connectionTimeoutId) {
+      clearTimeout(this.connectionTimeoutId);
+      this.connectionTimeoutId = null;
+    }
+
+    // Clean up previous data connection listeners before creating new one
+    if (this.hostDataConnection) {
+      this.hostDataConnection.off("open");
+      this.hostDataConnection.off("data");
+      this.hostDataConnection.off("close");
+      this.hostDataConnection.off("error");
+      this.hostDataConnection.close();
+      this.hostDataConnection = null;
+    }
 
     // Try base ID first, then with suffixes (host may have reconnected)
     const hostPeerId = this.hostIdSuffix > 0
@@ -331,7 +349,7 @@ class RoomWebRTCService {
     this.hostDataConnection = this.peer.connect(hostPeerId, { reliable: true });
 
     // Set a timeout to detect if connection fails silently
-    const connectionTimeout = setTimeout(() => {
+    this.connectionTimeoutId = setTimeout(() => {
       if (!this.hostDataConnection?.open) {
         this.connectionRetryCount++;
 
@@ -342,7 +360,6 @@ class RoomWebRTCService {
 
           if (this.hostIdSuffix <= this.MAX_HOST_ID_SUFFIX) {
             console.warn(`[RoomWebRTC] Trying host ID with suffix ${this.hostIdSuffix}...`);
-            this.hostDataConnection?.close();
             setTimeout(() => this.connectToHost(), this.CONNECTION_RETRY_DELAY);
             return;
           } else {
@@ -355,22 +372,25 @@ class RoomWebRTCService {
         }
 
         console.warn(`[RoomWebRTC] Connection timeout, retrying (${this.connectionRetryCount}/${this.MAX_CONNECTION_RETRIES})...`);
-        this.hostDataConnection?.close();
         setTimeout(() => this.connectToHost(), this.CONNECTION_RETRY_DELAY);
       }
     }, 5000); // 5 second timeout per attempt
 
     // Clear timeout and reset retry count if connection opens
     this.hostDataConnection.on("open", () => {
-      clearTimeout(connectionTimeout);
+      if (this.connectionTimeoutId) {
+        clearTimeout(this.connectionTimeoutId);
+        this.connectionTimeoutId = null;
+      }
       this.connectionRetryCount = 0;
       this.hostIdSuffix = 0; // Reset for future reconnections
     });
 
     this.setupViewerDataConnection(this.hostDataConnection);
 
-    // Listen for incoming calls from host (only set up once)
-    if (!this.peer.listeners("call").length) {
+    // Listen for incoming calls from host (only register once per peer instance)
+    if (!this.callListenerRegistered && this.peer) {
+      this.callListenerRegistered = true;
       this.peer.on("call", (call) => {
         console.log("[RoomWebRTC] Receiving stream from host");
         this.hostMediaConnection = call;
@@ -394,6 +414,9 @@ class RoomWebRTCService {
     conn.on("data", (data) => {
       const msg = data as HeartbeatMessage;
       if (msg.type === "PING") {
+        // Update lastPongTime when we receive a PING from host
+        // This proves the connection is alive
+        this.lastPongTime = Date.now();
         conn.send({ type: "PONG", timestamp: msg.timestamp });
       }
     });
@@ -412,11 +435,12 @@ class RoomWebRTCService {
 
   /**
    * Viewer: Set up media connection from host
+   * Uses named handlers so they can be properly removed with .off()
    */
   private setupViewerMediaConnection(call: MediaConnection): void {
     let streamReceived = false;
 
-    call.on("stream", (remoteStream) => {
+    const onStream = (remoteStream: MediaStream) => {
       // PeerJS fires "stream" event multiple times (once per track)
       // Only process the first one to avoid interrupting play()
       if (streamReceived) {
@@ -428,22 +452,35 @@ class RoomWebRTCService {
       console.log("[RoomWebRTC] Received stream from host");
       this.options.onRemoteStream?.(remoteStream);
       this.options.onConnectionStateChange?.("connected");
-    });
+    };
 
-    call.on("close", () => {
+    const onClose = () => {
       console.log("[RoomWebRTC] Media connection to host closed");
+      // Remove listeners to prevent memory leaks
+      call.off("stream", onStream);
+      call.off("close", onClose);
+      call.off("error", onError);
       streamReceived = false;
       this.options.onConnectionStateChange?.("disconnected");
-    });
+    };
 
-    call.on("error", (err) => {
+    const onError = (err: Error) => {
       console.error("[RoomWebRTC] Media connection error:", err);
+      // Remove listeners to prevent memory leaks
+      call.off("stream", onStream);
+      call.off("close", onClose);
+      call.off("error", onError);
       this.options.onError?.("Stream from host failed");
-    });
+    };
+
+    call.on("stream", onStream);
+    call.on("close", onClose);
+    call.on("error", onError);
   }
 
   /**
    * Viewer: Start heartbeat response tracking
+   * Detects when host stops sending pings (ghost connection)
    */
   private startViewerHeartbeat(): void {
     if (this.heartbeatInterval) return;
@@ -451,13 +488,12 @@ class RoomWebRTCService {
     this.heartbeatInterval = setInterval(() => {
       const timeSinceLastPing = Date.now() - this.lastPongTime;
       if (timeSinceLastPing > this.DISCONNECT_THRESHOLD) {
-        console.warn("[RoomWebRTC] No heartbeat from host");
+        console.warn("[RoomWebRTC] No heartbeat from host for", timeSinceLastPing, "ms");
         this.options.onConnectionStateChange?.("disconnected");
         this.options.onError?.("Connection lost - no response from host");
+        this.stopHeartbeat();
       }
-
-      // Update last pong time when we receive pings (handled in data callback)
-      this.lastPongTime = Date.now(); // Reset on each interval check
+      // NOTE: lastPongTime is updated in setupViewerDataConnection when PING is received
     }, this.HEARTBEAT_INTERVAL);
   }
 
@@ -625,14 +661,30 @@ class RoomWebRTCService {
 
   /**
    * Host: Set the stream and send to all connected viewers
+   * This properly handles stream switching by closing old connections and creating new ones
    */
   private setStream(stream: MediaStream): void {
+    // Stop old stream tracks first
+    if (this.localStream && this.localStream !== stream) {
+      console.log("[RoomWebRTC] Stopping old stream tracks");
+      this.localStream.getTracks().forEach(track => track.stop());
+    }
+
     this.localStream = stream;
 
-    // Send stream to all connected viewers
+    // Update ALL existing viewer connections with the new stream
+    // Close old media connections and create new ones
     if (this.peer) {
       this.viewers.forEach((viewer, viewerId) => {
-        if (!viewer.mediaConnection) {
+        // Close existing media connection if any
+        if (viewer.mediaConnection) {
+          console.log("[RoomWebRTC] Closing old media connection for viewer:", viewerId);
+          viewer.mediaConnection.close();
+          viewer.mediaConnection = null;
+        }
+
+        // Create new call with new stream (only if data connection is open)
+        if (viewer.dataConnection?.open) {
           console.log("[RoomWebRTC] Calling viewer with new stream:", viewerId);
           const mediaConn = this.peer!.call(viewerId, stream);
           viewer.mediaConnection = mediaConn;
@@ -729,6 +781,13 @@ class RoomWebRTCService {
     this.hostIdSuffix = 0;
     this.initRetryCount = 0;
     this.currentPeerId = null;
+    this.callListenerRegistered = false;
+
+    // Clear connection timeout
+    if (this.connectionTimeoutId) {
+      clearTimeout(this.connectionTimeoutId);
+      this.connectionTimeoutId = null;
+    }
   }
 }
 
