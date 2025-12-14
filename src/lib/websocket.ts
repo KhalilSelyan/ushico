@@ -54,17 +54,24 @@ class WebSocketService {
   private subscribers: Map<string, Map<string, Set<(data: any) => void>>> =
     new Map();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectTimeout = 1000;
+  private maxReconnectAttempts = 10;
+  private reconnectDelays = [1000, 2000, 4000, 8000, 15000, 30000]; // Then stay at 30s
   private debug = process.env.NODE_ENV === "development";
   private url: string;
   private connectionPromise: Promise<void> | null = null;
+  private connectionTimeout = 10000; // 10 second connection timeout
+  private messageQueue: Array<{ channel: string; event: string; data: any }> = [];
+  private onConnectionLost?: () => void;
 
   constructor(url?: string, autoConnect: boolean = true) {
     this.url = url ?? process.env.NEXT_PUBLIC_WEBSOCKET_URL!;
     if (autoConnect) {
       this.connect();
     }
+  }
+
+  public setOnConnectionLost(callback: () => void): void {
+    this.onConnectionLost = callback;
   }
 
   public hasUserID(): boolean {
@@ -96,14 +103,24 @@ class WebSocketService {
     }
 
     this.connectionPromise = new Promise((resolve, reject) => {
+      // Set up connection timeout
+      const timeoutId = setTimeout(() => {
+        this.log("Connection timeout");
+        if (this.ws) {
+          this.ws.close();
+        }
+        this.connectionPromise = null;
+        reject(new Error("Connection timeout"));
+      }, this.connectionTimeout);
+
       try {
         this.log("Connecting to WebSocket...");
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
+          clearTimeout(timeoutId);
           this.log("Connected");
           this.reconnectAttempts = 0;
-          this.reconnectTimeout = 1000;
 
           // Resubscribe to all channels and events
           this.subscribers.forEach((channelMap, channel) => {
@@ -112,22 +129,28 @@ class WebSocketService {
             });
           });
 
+          // Flush any queued messages
+          this.flushMessageQueue();
+
           resolve();
         };
 
         this.ws.onmessage = this.onMessage.bind(this);
 
         this.ws.onclose = () => {
+          clearTimeout(timeoutId);
           this.log("Disconnected");
           this.connectionPromise = null;
           this.handleReconnect();
         };
 
         this.ws.onerror = (error) => {
+          clearTimeout(timeoutId);
           console.error("WebSocket Error:", error);
           reject(error);
         };
       } catch (error) {
+        clearTimeout(timeoutId);
         console.error("WebSocket Connection Error:", error);
         this.connectionPromise = null;
         this.handleReconnect();
@@ -136,6 +159,15 @@ class WebSocketService {
     });
 
     return this.connectionPromise;
+  }
+
+  private flushMessageQueue(): void {
+    this.log(`Flushing ${this.messageQueue.length} queued messages`);
+    while (this.messageQueue.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
+      const msg = this.messageQueue.shift()!;
+      this.ws.send(JSON.stringify(msg));
+      this.log("Sent queued message:", msg);
+    }
   }
 
   private async onMessage(event: MessageEvent) {
@@ -170,15 +202,25 @@ class WebSocketService {
       return;
     }
 
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      this.reconnectTimeout *= 2; // Exponential backoff
-
-      setTimeout(() => {
-        this.log(`Attempting to reconnect... (${this.reconnectAttempts})`);
-        this.connect();
-      }, this.reconnectTimeout);
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.log("Max reconnection attempts reached, notifying UI");
+      this.onConnectionLost?.();
+      return;
     }
+
+    // Get delay from array, or stay at last value if we've exceeded array length
+    const delay = this.reconnectDelays[
+      Math.min(this.reconnectAttempts, this.reconnectDelays.length - 1)
+    ];
+
+    this.reconnectAttempts++;
+    this.log(`Reconnecting in ${delay}ms... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+    setTimeout(() => {
+      this.connect().catch((err) => {
+        this.log("Reconnection failed:", err);
+      });
+    }, delay);
   }
 
   private sendSubscription(channel: string, event: string) {
@@ -254,8 +296,6 @@ class WebSocketService {
     event: WebSocketEvent,
     data: T
   ): Promise<void> {
-    await this.connect();
-
     const message: WebSocketMessage<T> = {
       channel,
       event,
@@ -266,8 +306,28 @@ class WebSocketService {
       this.ws.send(JSON.stringify(message));
       this.log("Message sent:", message);
     } else {
-      throw new Error("WebSocket is not connected");
+      // Queue message for retry when connection is restored
+      this.log("WebSocket not connected, queueing message:", message);
+      this.messageQueue.push(message);
+
+      // Attempt to reconnect
+      try {
+        await this.connect();
+        // If connect succeeds, message should be flushed automatically
+      } catch {
+        this.log("Connection failed, message remains queued");
+      }
     }
+  }
+
+  public getConnectionState(): "connected" | "connecting" | "disconnected" {
+    if (this.ws?.readyState === WebSocket.OPEN) return "connected";
+    if (this.connectionPromise) return "connecting";
+    return "disconnected";
+  }
+
+  public getQueuedMessageCount(): number {
+    return this.messageQueue.length;
   }
 }
 
