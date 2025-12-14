@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { getWebSocketService } from "@/lib/websocket";
 import {
-  webrtcService,
+  WebRTCService,
   ConnectionState,
   ConnectionQuality,
 } from "@/lib/webrtc";
@@ -430,6 +430,7 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
   const progressRef = useRef<HTMLDivElement>(null);
   const blobUrl = useRef<string | null>(null);
   const webrtcInitialized = useRef(false);
+  const webrtcServiceRef = useRef<WebRTCService | null>(null);
 
   // Constants
   const SYNC_INTERVAL = 1000 * 60 * 5; // 5 minutes
@@ -439,10 +440,10 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
 
   // Handle reconnection - now handled by PeerJS automatically
   const handleReconnect = useCallback(async () => {
-    if (type === "host" && localStream.current) {
+    if (type === "host" && localStream.current && webrtcServiceRef.current) {
       try {
         console.log("Attempting reconnection with new stream...");
-        webrtcService.sendStream(localStream.current);
+        webrtcServiceRef.current.sendStream(localStream.current);
       } catch (err) {
         console.error("Reconnection failed:", err);
         setError("Connection failed. Please try refreshing the page.");
@@ -465,6 +466,10 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
       try {
         webrtcInitialized.current = true;
         const isHost = user.id === userId1;
+
+        // Create a new WebRTC service instance for this component
+        const webrtcService = new WebRTCService();
+        webrtcServiceRef.current = webrtcService;
 
         await webrtcService.init(chatId, isHost, {
           onConnectionStateChange: (state) => {
@@ -523,7 +528,8 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
         localStream.current.getTracks().forEach((track) => track.stop());
       }
 
-      webrtcService.cleanup();
+      webrtcServiceRef.current?.cleanup();
+      webrtcServiceRef.current = null;
       webrtcInitialized.current = false;
     };
   }, [chatId, handleReconnect, user.id, userId1]);
@@ -586,8 +592,13 @@ const WebRTCPlayer = ({ chatId, user, userId1 }: WebRTCPlayerProps) => {
           console.log("Created media stream from file");
 
           // Send stream via PeerJS
-          webrtcService.sendStream(localStream.current);
-          console.log("Stream sent via PeerJS");
+          if (webrtcServiceRef.current) {
+            webrtcServiceRef.current.sendStream(localStream.current);
+            console.log("Stream sent via PeerJS");
+          } else {
+            console.error("WebRTC service not initialized");
+            setError("Connection not ready. Please wait...");
+          }
 
           await syncVideoState();
         } catch (err) {

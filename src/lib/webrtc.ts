@@ -308,8 +308,5 @@ class WebRTCService {
   }
 }
 
-// Export singleton instance
-export const webrtcService = new WebRTCService();
-
-// Also export class for cases where multiple instances are needed
+// Export class for creating instances per component
 export { WebRTCService };
