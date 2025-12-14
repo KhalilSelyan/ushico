@@ -11,7 +11,6 @@ Ushico is a Next.js 13 social video-watching application that allows users to wa
 - `pnpm dev` - Start development server
 - `pnpm build` - Build production application
 - `pnpm lint` - Run ESLint linting
-- `pnpm check` - Run Biome formatting check (run before commits)
 - `pnpm db:generate` - Generate Drizzle schema migrations
 - `pnpm db:migrate` - Run database migrations
 - `pnpm db:push` - Push schema changes to database
@@ -24,55 +23,48 @@ Ushico is a Next.js 13 social video-watching application that allows users to wa
 - **Database**: PostgreSQL with Drizzle ORM
 - **Authentication**: Better Auth with Google OAuth
 - **Styling**: Tailwind CSS with shadcn/ui components
-- **Real-time**: WebSocket service for live sync and messaging
+- **Real-time**: WebSocket service (Go backend) for live sync and messaging
 - **State Management**: React hooks with WebSocket synchronization
-
-### Core Features
-1. **User Authentication**: Google OAuth integration via Better Auth
-2. **Friend System**: Send/accept friend requests, manage friendships
-3. **Real-time Chat**: WebSocket-powered messaging between friends
-4. **Video Synchronization**: Real-time synchronized video playback for watch parties
-5. **Movie Voting**: Collaborative movie selection with TMDb integration
-6. **Responsive Design**: Mobile and desktop layouts with custom fullscreen support
 
 ### Directory Structure
 - `src/app/` - Next.js 13 App Router pages and API routes
   - `(auth)/` - Authentication pages
   - `(dashboard)/` - Main app dashboard, friends, movies, chat
   - `(watch)/` - Video watching interface
-  - `api/` - Backend API endpoints for friends, messages, movies
+  - `api/` - Backend API endpoints for friends, messages, movies, rooms
 - `src/components/` - React components including VideoPlayer, chat interface
 - `src/db/` - Database schema, queries, and connection
 - `src/lib/` - Utilities including WebSocket service and validators
 - `src/auth/` - Better Auth configuration
 
 ### Database Schema
-The app uses a relational schema with these main entities:
-- **Users**: Authentication and profile data
-- **Friends**: Bidirectional friendship relationships
-- **FriendRequests**: Pending friendship invitations
+Main entities in `src/db/schema.ts`:
+- **Users/Sessions/Accounts**: Authentication and profile data (Better Auth)
+- **Friends/FriendRequests**: Bidirectional friendship system
 - **Messages**: Direct messages between friends
-- **Movies**: TMDb movie data cache
-- **MovieVotes**: User voting on movies (upvote/downvote/neutral)
+- **Movies/MovieVotes**: TMDb movie cache and voting (upvote/downvote/neutral)
+- **Rooms**: Watch party rooms with host, ephemeral rooms support, invite codes
+- **RoomParticipants**: Users in rooms with roles (host/viewer)
+- **RoomMessages**: Chat within rooms (separate from direct messages)
+- **RoomInvitations/RoomJoinRequests**: Room access management
 
 ### WebSocket Integration
-Real-time features powered by WebSocket service (`src/lib/websocket.ts`):
-- Message delivery
-- Friend request notifications
-- Video synchronization (play/pause, seek, URL changes)
-- Connection quality monitoring
+Real-time features via `src/lib/websocket.ts` connecting to Go WebSocket server:
+- Channel-based pub/sub with event subscription
+- Room events: `host_sync`, `room_message`, `participant_joined/left`, `host_transferred`
+- UX features: `user_typing`, `video_reaction`, `room_announcement`
+- Presence system: `user_presence_update`, `get_room_presence`
+- Auto-reconnection with exponential backoff
 
-### Key Components
-- `VideoPlayer`: Advanced video synchronization with host/watcher roles
-- `MoviesPageClient`: Movie discovery and voting interface
-- `FriendsPageClient`: Friend management with request handling
-- `Messages`: Real-time chat interface
+### Key Patterns
+- Tables use `_table` suffix via `pgTableCreator`
+- WebSocket requires `userID` query param for authenticated connections
+- Rooms support ephemeral mode (auto-delete after expiration)
 
 ## Development Notes
 
 - Uses pnpm as package manager
 - All branches should be created from `dev` branch
-- Run `pnpm check` before commits to ensure Biome formatting
 - Authentication requires Google OAuth credentials in environment variables
 - Database requires PostgreSQL connection string in `DATABASE_URL`
-- WebSocket server endpoint configurable via environment variables
+- WebSocket server endpoint via `NEXT_PUBLIC_WEBSOCKET_URL`
