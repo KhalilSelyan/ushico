@@ -173,9 +173,24 @@ class ParticipantWebRTCService {
       // Try to become hub first, fall back to connecting as participant
       await this.tryBecomeHubOrConnect();
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("[ParticipantWebRTC] Failed to get media:", err);
-      this.options.onError?.("Failed to access camera/microphone");
+
+      // Provide user-friendly error messages for common cases
+      let errorMessage = "Failed to access camera/microphone";
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        errorMessage = "Camera/microphone access denied. Please allow access in your browser settings.";
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        errorMessage = "No camera or microphone found. Please connect a device.";
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        errorMessage = "Camera/microphone is already in use by another application.";
+      } else if (err.name === "OverconstrainedError") {
+        errorMessage = "Camera/microphone doesn't support the requested settings.";
+      } else if (err.name === "TypeError") {
+        errorMessage = "No camera or microphone requested. Enable at least one.";
+      }
+
+      this.options.onError?.(errorMessage);
       this.options.onConnectionStateChange?.("failed");
       throw err;
     }
@@ -287,13 +302,24 @@ class ParticipantWebRTCService {
         if (this.isCleaningUp) return;
         console.error("[ParticipantWebRTC] Participant peer error:", err);
         if (err.type === "peer-unavailable") {
-          this.options.onError?.("Webcam hub not available");
-          this.options.onConnectionStateChange?.("disconnected");
+          // Hub doesn't exist - this means the stale ID finally expired
+          // We should try to become hub ourselves
+          console.log("[ParticipantWebRTC] Hub unavailable, attempting to become hub");
+          if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+          }
+          // Wait for PeerJS to release, then retry
+          setTimeout(() => {
+            if (!this.isCleaningUp) {
+              this.tryBecomeHubOrConnect().then(resolve).catch(reject);
+            }
+          }, 1000);
         } else {
           this.options.onError?.(err.message || "Connection error");
           this.options.onConnectionStateChange?.("failed");
+          reject(err);
         }
-        reject(err);
       });
 
       // Listen for incoming calls from hub (stream relay)
@@ -494,7 +520,13 @@ class ParticipantWebRTCService {
    * Hub: Set up media connection handlers for a participant
    */
   private setupHubMediaConnection(call: MediaConnection, odpeerId: string): void {
+    let streamReceived = false;
+
     call.on("stream", (stream) => {
+      // Prevent duplicate processing
+      if (streamReceived) return;
+      streamReceived = true;
+
       console.log("[ParticipantWebRTC] Received stream from participant:", odpeerId);
       const participant = this.participants.get(odpeerId);
       if (participant) {
@@ -507,8 +539,11 @@ class ParticipantWebRTCService {
           this.options.onParticipantUpdated?.(p);
         }
 
-        // Relay stream to other participants
+        // Relay this participant's stream to all other participants
         this.relayStreamToOthers(odpeerId, stream);
+
+        // Send all existing streams to this new participant
+        this.sendExistingStreamsToNewParticipant(odpeerId);
       }
     });
 
@@ -521,19 +556,134 @@ class ParticipantWebRTCService {
     });
   }
 
+  // Hub: Track relay calls per participant (targetPeerId -> sourcePeerId -> MediaConnection)
+  private relayCalls: Map<string, Map<string, MediaConnection>> = new Map();
+
   /**
    * Hub: Relay a participant's stream to all other participants
+   * Each participant receives separate calls for each other participant's stream
    */
   private relayStreamToOthers(sourceOdpeerId: string, stream: MediaStream): void {
     if (!this.peer) return;
 
-    this.participants.forEach((p, odpeerId) => {
-      if (odpeerId !== sourceOdpeerId && p.dataConnection?.open) {
-        console.log("[ParticipantWebRTC] Relaying stream from", sourceOdpeerId, "to", odpeerId);
-        // Note: In a real implementation, we'd use multiple tracks or SFU
-        // For simplicity, we send the stream via a new call
-        // This creates multiple connections but works for small groups
+    const sourceParticipant = this.participants.get(sourceOdpeerId);
+    if (!sourceParticipant) return;
+
+    this.participants.forEach((targetP, targetOdpeerId) => {
+      // Don't send stream back to its source
+      if (targetOdpeerId === sourceOdpeerId) return;
+      if (!targetP.dataConnection?.open) return;
+
+      console.log("[ParticipantWebRTC] Relaying stream from", sourceOdpeerId, "to", targetOdpeerId);
+
+      // Initialize relay map for this target if needed
+      if (!this.relayCalls.has(targetOdpeerId)) {
+        this.relayCalls.set(targetOdpeerId, new Map());
       }
+      const targetRelays = this.relayCalls.get(targetOdpeerId)!;
+
+      // Close existing relay from this source if any
+      const existingRelay = targetRelays.get(sourceOdpeerId);
+      if (existingRelay) {
+        existingRelay.close();
+      }
+
+      // Send metadata about whose stream this is via data channel first
+      targetP.dataConnection.send({
+        type: "STREAM_SOURCE",
+        sourceOdpeerId: sourceOdpeerId,
+        sourceOdparticipantId: sourceParticipant.odparticipantId,
+      } as any);
+
+      // Call the target with the source's stream
+      const relayCall = this.peer!.call(targetOdpeerId, stream, {
+        metadata: {
+          type: "relay",
+          sourceOdpeerId: sourceOdpeerId,
+          sourceOdparticipantId: sourceParticipant.odparticipantId,
+        },
+      });
+
+      targetRelays.set(sourceOdpeerId, relayCall);
+
+      relayCall.on("close", () => {
+        console.log("[ParticipantWebRTC] Relay call closed:", sourceOdpeerId, "->", targetOdpeerId);
+        targetRelays.delete(sourceOdpeerId);
+      });
+
+      relayCall.on("error", (err) => {
+        console.error("[ParticipantWebRTC] Relay call error:", sourceOdpeerId, "->", targetOdpeerId, err);
+      });
+    });
+  }
+
+  /**
+   * Hub: Stop relaying a participant's stream (when they leave)
+   */
+  private stopRelayingStream(sourceOdpeerId: string): void {
+    // Close all relay calls from this source
+    this.relayCalls.forEach((targetRelays, targetOdpeerId) => {
+      const relay = targetRelays.get(sourceOdpeerId);
+      if (relay) {
+        relay.close();
+        targetRelays.delete(sourceOdpeerId);
+      }
+    });
+  }
+
+  /**
+   * Hub: Send all existing streams to a newly joined participant
+   */
+  private sendExistingStreamsToNewParticipant(newOdpeerId: string): void {
+    if (!this.peer) return;
+
+    const newParticipant = this.participants.get(newOdpeerId);
+    if (!newParticipant?.dataConnection?.open) return;
+
+    // Initialize relay map for new participant
+    if (!this.relayCalls.has(newOdpeerId)) {
+      this.relayCalls.set(newOdpeerId, new Map());
+    }
+    const newParticipantRelays = this.relayCalls.get(newOdpeerId)!;
+
+    // Send hub's own stream
+    if (this.localStream) {
+      newParticipant.dataConnection.send({
+        type: "STREAM_SOURCE",
+        sourceOdpeerId: this.hubPeerId,
+        sourceOdparticipantId: this.odparticipantId,
+      } as any);
+
+      const hubCall = this.peer.call(newOdpeerId, this.localStream, {
+        metadata: {
+          type: "relay",
+          sourceOdpeerId: this.hubPeerId,
+          sourceOdparticipantId: this.odparticipantId,
+        },
+      });
+      newParticipantRelays.set(this.hubPeerId, hubCall);
+    }
+
+    // Send all other participants' streams
+    this.participants.forEach((p, odpeerId) => {
+      if (odpeerId === newOdpeerId || !p.stream) return;
+
+      console.log("[ParticipantWebRTC] Sending existing stream from", odpeerId, "to new participant", newOdpeerId);
+
+      newParticipant.dataConnection!.send({
+        type: "STREAM_SOURCE",
+        sourceOdpeerId: odpeerId,
+        sourceOdparticipantId: p.odparticipantId,
+      } as any);
+
+      const relayCall = this.peer!.call(newOdpeerId, p.stream, {
+        metadata: {
+          type: "relay",
+          sourceOdpeerId: odpeerId,
+          sourceOdparticipantId: p.odparticipantId,
+        },
+      });
+      newParticipantRelays.set(odpeerId, relayCall);
     });
   }
 
@@ -557,6 +707,16 @@ class ParticipantWebRTCService {
       // Remove from all participants
       this.allParticipants.delete(participant.odparticipantId);
       this.options.onParticipantLeft?.(participant.odparticipantId);
+
+      // Stop relaying this participant's stream to others
+      this.stopRelayingStream(odpeerId);
+
+      // Clean up relay calls TO this participant
+      const targetRelays = this.relayCalls.get(odpeerId);
+      if (targetRelays) {
+        targetRelays.forEach((call) => call.close());
+        this.relayCalls.delete(odpeerId);
+      }
 
       // Clean up connections
       participant.dataConnection?.close();
@@ -751,30 +911,72 @@ class ParticipantWebRTCService {
         this.lastPongTime = Date.now();
         this.hubDataConnection?.send({ type: "PONG", timestamp: msg.timestamp } as HubMessage);
         break;
+
+      case "STREAM_SOURCE" as any:
+        // Store pending stream source info for the next incoming call
+        const streamSourceMsg = msg as any;
+        this.pendingStreamSource = {
+          sourceOdpeerId: streamSourceMsg.sourceOdpeerId,
+          sourceOdparticipantId: streamSourceMsg.sourceOdparticipantId,
+        };
+        console.log("[ParticipantWebRTC] Pending stream from:", streamSourceMsg.sourceOdparticipantId);
+        break;
     }
   }
 
+  // Participant: Track pending stream source for incoming relay calls
+  private pendingStreamSource: { sourceOdpeerId: string; sourceOdparticipantId: string } | null = null;
+
   /**
-   * Participant: Set up media connection handlers
+   * Participant: Set up media connection handlers for relayed streams
    */
   private setupParticipantMediaConnection(call: MediaConnection): void {
+    // Get source info from call metadata or pending source
+    const metadata = call.metadata as { type?: string; sourceOdpeerId?: string; sourceOdparticipantId?: string } | undefined;
+    let sourceOdparticipantId = metadata?.sourceOdparticipantId || this.pendingStreamSource?.sourceOdparticipantId;
+
+    // Clear pending source after use
+    if (this.pendingStreamSource) {
+      sourceOdparticipantId = this.pendingStreamSource.sourceOdparticipantId;
+      this.pendingStreamSource = null;
+    }
+
     call.on("stream", (stream) => {
-      console.log("[ParticipantWebRTC] Received stream from hub (relay)");
-      // This would be streams from other participants relayed by hub
-      // For now, the hub sends its own stream
-      const hubParticipant = this.allParticipants.get(this.getHubParticipantId());
-      if (hubParticipant) {
-        hubParticipant.stream = stream;
-        this.options.onParticipantUpdated?.(hubParticipant);
+      console.log("[ParticipantWebRTC] Received relayed stream for participant:", sourceOdparticipantId);
+
+      if (sourceOdparticipantId) {
+        // Find the participant this stream belongs to
+        const participant = this.allParticipants.get(sourceOdparticipantId);
+        if (participant) {
+          participant.stream = stream;
+          this.options.onParticipantUpdated?.(participant);
+        } else {
+          console.warn("[ParticipantWebRTC] Received stream for unknown participant:", sourceOdparticipantId);
+        }
+      } else {
+        // Fallback: try to assign to hub participant
+        const hubParticipant = this.allParticipants.get(this.getHubParticipantId());
+        if (hubParticipant) {
+          hubParticipant.stream = stream;
+          this.options.onParticipantUpdated?.(hubParticipant);
+        }
       }
     });
 
     call.on("close", () => {
-      console.log("[ParticipantWebRTC] Media connection to hub closed");
+      console.log("[ParticipantWebRTC] Relayed media connection closed for:", sourceOdparticipantId);
+      // Clear stream from participant
+      if (sourceOdparticipantId) {
+        const participant = this.allParticipants.get(sourceOdparticipantId);
+        if (participant) {
+          participant.stream = null;
+          this.options.onParticipantUpdated?.(participant);
+        }
+      }
     });
 
     call.on("error", (err) => {
-      console.error("[ParticipantWebRTC] Media connection error:", err);
+      console.error("[ParticipantWebRTC] Relayed media connection error:", err);
     });
   }
 
@@ -809,8 +1011,13 @@ class ParticipantWebRTCService {
 
   /**
    * Handle hub transfer (when hub leaves)
+   * The new hub peer ID is the random peer ID of the participant becoming hub
+   * They will recreate with the standard hub ID pattern
    */
   private handleHubTransfer(newHubPeerId: string): void {
+    console.log("[ParticipantWebRTC] Hub transfer initiated, new hub peer:", newHubPeerId);
+    console.log("[ParticipantWebRTC] My peer ID:", this.peer?.id);
+
     // Disconnect from old hub
     this.hubDataConnection?.close();
     this.hubMediaConnection?.close();
@@ -818,27 +1025,83 @@ class ParticipantWebRTCService {
     this.hubMediaConnection = null;
     this.stopHeartbeat();
 
-    // Check if we're the new hub
+    this.options.onConnectionStateChange?.("reconnecting");
+
+    // Check if we're the new hub (compare peer IDs)
     if (this.peer?.id === newHubPeerId) {
-      console.log("[ParticipantWebRTC] Becoming new hub");
+      console.log("[ParticipantWebRTC] I am becoming the new hub!");
       this.isHubParticipant = true;
       this.options.onHubStatusChange?.(true);
 
-      // Recreate peer with hub ID
-      this.peer?.destroy();
-      this.peer = new Peer(this.hubPeerId, {
-        debug: 2,
-        config: { iceServers: this.ICE_SERVERS },
-      });
+      // Destroy current peer and recreate with hub ID
+      this.peer.destroy();
+      this.peer = null;
 
-      this.peer.on("open", () => {
-        this.setupHubListeners();
-        this.options.onConnectionStateChange?.("connected");
-      });
+      // Wait for PeerJS to release the ID, then create with hub ID
+      setTimeout(() => {
+        if (this.isCleaningUp) return;
+
+        const baseHubId = `ushico-webcam-hub-${this.roomId}`;
+        this.peer = new Peer(baseHubId, {
+          debug: 1,
+          config: { iceServers: this.ICE_SERVERS },
+        });
+
+        this.peer.on("open", (id) => {
+          console.log("[ParticipantWebRTC] Now hub with ID:", id);
+          this.setupHubListeners();
+          this.options.onConnectionStateChange?.("connected");
+        });
+
+        this.peer.on("error", (err) => {
+          console.error("[ParticipantWebRTC] Error becoming hub:", err);
+          // If we can't become hub, try connecting as participant
+          this.isHubParticipant = false;
+          this.options.onHubStatusChange?.(false);
+          this.peer?.destroy();
+          this.peer = null;
+          setTimeout(() => this.tryBecomeHubOrConnect(), 1000);
+        });
+      }, 500);
     } else {
-      // Reconnect to new hub
-      this.hubPeerId = newHubPeerId;
-      setTimeout(() => this.connectToHub(), 1000);
+      // Not the new hub - wait for new hub to set up, then reconnect
+      console.log("[ParticipantWebRTC] Waiting for new hub to set up...");
+
+      // Destroy current peer
+      if (this.peer) {
+        this.peer.destroy();
+        this.peer = null;
+      }
+
+      // Wait for new hub to create their peer with the hub ID, then connect
+      setTimeout(() => {
+        if (this.isCleaningUp) return;
+
+        // Create new peer with random ID
+        this.peer = new Peer({
+          debug: 1,
+          config: { iceServers: this.ICE_SERVERS },
+        });
+
+        this.peer.on("open", () => {
+          console.log("[ParticipantWebRTC] Ready to connect to new hub");
+          // Reset hub peer ID to the standard pattern (new hub will use this)
+          this.hubPeerId = `ushico-webcam-hub-${this.roomId}`;
+          this.connectToHub();
+        });
+
+        this.peer.on("call", (call) => {
+          if (this.isCleaningUp) return;
+          call.answer(this.localStream || undefined);
+          this.setupParticipantMediaConnection(call);
+        });
+
+        this.peer.on("error", (err) => {
+          console.error("[ParticipantWebRTC] Error after hub transfer:", err);
+          this.options.onError?.("Failed to reconnect after hub change");
+          this.options.onConnectionStateChange?.("failed");
+        });
+      }, 2000); // Give new hub time to set up
     }
   }
 
