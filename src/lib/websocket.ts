@@ -338,6 +338,7 @@ export interface RoomSyncData {
   roomId: string;
   state: "playing" | "paused";
   videoId: string; // UUID generated when URL changes
+  sentAt?: number; // Timestamp when message was sent (for latency compensation)
 }
 
 // Server error response format
