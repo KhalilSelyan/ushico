@@ -369,6 +369,8 @@ class ParticipantWebRTCService {
   private handleParticipantConnection(conn: DataConnection): void {
     const odpeerId = conn.peer;
 
+    console.log("[ParticipantWebRTC] Setting up handlers for connection, open status:", conn.open);
+
     const onConnectionOpen = () => {
       console.log("[ParticipantWebRTC] Data connection open with:", odpeerId);
 
