@@ -121,6 +121,10 @@ class ParticipantWebRTCService {
   private readonly MAX_HUB_RETRIES = 3;
   private isCleaningUp = false;
 
+  // Track connection attempts to stale hub
+  private staleHubAttempts = 0;
+  private readonly MAX_STALE_HUB_ATTEMPTS = 2;
+
   /**
    * Initialize service for a room
    */
@@ -148,8 +152,9 @@ class ParticipantWebRTCService {
       return;
     }
 
-    // Reset retry count on fresh join
+    // Reset retry counts on fresh join
     this.hubRetryCount = 0;
+    this.staleHubAttempts = 0;
     this.isCleaningUp = false;
 
     this.videoEnabled = options.video;
@@ -798,15 +803,31 @@ class ParticipantWebRTCService {
   private connectToHub(): void {
     if (!this.peer || this.isCleaningUp) return;
 
-    console.log("[ParticipantWebRTC] Connecting to hub:", this.hubPeerId);
+    console.log("[ParticipantWebRTC] Connecting to hub:", this.hubPeerId, "attempt:", this.staleHubAttempts + 1);
 
     // Set timeout - if we can't connect, the hub ID might be stale
-    // Try to become hub ourselves
     this.hubConnectionTimeoutId = setTimeout(() => {
       if (!this.hubDataConnection?.open && !this.isCleaningUp) {
-        console.log("[ParticipantWebRTC] Hub connection timeout - hub may be stale, trying to become hub");
+        this.staleHubAttempts++;
+        console.log("[ParticipantWebRTC] Hub connection timeout, attempt:", this.staleHubAttempts);
+
         this.hubDataConnection?.close();
         this.hubDataConnection = null;
+
+        // If we've tried too many times, the hub ID is stale but PeerJS won't release it
+        // Just give up and show error - user needs to wait or refresh
+        if (this.staleHubAttempts >= this.MAX_STALE_HUB_ATTEMPTS) {
+          console.log("[ParticipantWebRTC] Max stale hub attempts reached, giving up");
+          this.options.onError?.("Could not connect to webcam. The previous session may still be closing. Please wait a moment and try again.");
+          this.options.onConnectionStateChange?.("failed");
+
+          // Clean up peer
+          if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+          }
+          return;
+        }
 
         // Destroy current peer and try to become hub
         if (this.peer) {
@@ -836,6 +857,9 @@ class ParticipantWebRTCService {
         clearTimeout(this.hubConnectionTimeoutId);
         this.hubConnectionTimeoutId = null;
       }
+
+      // Reset stale hub attempts on successful connection
+      this.staleHubAttempts = 0;
 
       console.log("[ParticipantWebRTC] Connected to hub");
       this.lastPongTime = Date.now();
@@ -1371,6 +1395,7 @@ class ParticipantWebRTCService {
     this.isHubParticipant = false;
     this.reconnectAttempts = 0;
     this.hubRetryCount = 0;
+    this.staleHubAttempts = 0;
     this.lastPongTime = Date.now();
 
     if (this.reconnectTimeoutId) {
