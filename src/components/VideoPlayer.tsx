@@ -4,6 +4,7 @@
 import { User } from "better-auth";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Maximize,
   Maximize2,
   Minimize2,
   Play,
@@ -607,6 +608,7 @@ interface VideoControlsProps {
   volume: number;
   handleVolumeChange: (newVolume: number) => void;
   toggleCustomFullscreen: () => void;
+  toggleTrueFullscreen: () => void;
   isCustomFullscreen: boolean;
   showControls: boolean;
   isHost: boolean;
@@ -623,6 +625,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   volume,
   handleVolumeChange,
   toggleCustomFullscreen,
+  toggleTrueFullscreen,
   isCustomFullscreen,
   showControls,
   isHost,
@@ -698,16 +701,26 @@ const VideoControls: React.FC<VideoControlsProps> = ({
 
         <div className="flex-1" />
 
-        {/* Fullscreen toggle */}
+        {/* Theater mode toggle (f) - keeps chat visible */}
         <button
           onClick={toggleCustomFullscreen}
           className="text-white hover:text-white/80 transition-colors"
+          title="Theater mode (f)"
         >
           {isCustomFullscreen ? (
             <Minimize2 className="w-6 h-6" />
           ) : (
             <Maximize2 className="w-6 h-6" />
           )}
+        </button>
+
+        {/* True fullscreen toggle (Shift+F) */}
+        <button
+          onClick={toggleTrueFullscreen}
+          className="text-white hover:text-white/80 transition-colors"
+          title="Fullscreen (Shift+F)"
+        >
+          <Maximize className="w-6 h-6" />
         </button>
       </div>
     </div>
@@ -1350,6 +1363,22 @@ const VideoPlayer = ({
     });
   }, []);
 
+  // True browser fullscreen (hides everything including chat)
+  const toggleTrueFullscreen = useCallback(async () => {
+    if (!playerContainerRef.current) return;
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await playerContainerRef.current.requestFullscreen();
+        setShowInterface(false);
+      }
+    } catch (err) {
+      console.error("Fullscreen error:", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!sourceRef.current) return;
 
@@ -1440,13 +1469,23 @@ const VideoPlayer = ({
 
       switch (event.key) {
         case "Escape":
-          if (isCustomFullscreen) {
+          if (document.fullscreenElement) {
+            void document.exitFullscreen();
+          } else if (isCustomFullscreen) {
             setIsCustomFullscreen(false);
             setShowInterface(true);
           }
           break;
-        case "f":
-          toggleCustomFullscreen();
+        case "F": // Shift+F - true browser fullscreen
+          if (event.shiftKey) {
+            event.preventDefault();
+            void toggleTrueFullscreen();
+          }
+          break;
+        case "f": // f - theater mode (keeps chat visible)
+          if (!event.shiftKey) {
+            toggleCustomFullscreen();
+          }
           break;
         case " ": // Space - play/pause (host only, URL mode)
           event.preventDefault();
@@ -1482,7 +1521,7 @@ const VideoPlayer = ({
     return () => {
       document.removeEventListener("keydown", handleKeydown);
     };
-  }, [isCustomFullscreen, toggleCustomFullscreen, type, streamMode, volume, duration, togglePlay, handleVolumeChange]);
+  }, [isCustomFullscreen, toggleCustomFullscreen, toggleTrueFullscreen, type, streamMode, volume, duration, togglePlay, handleVolumeChange]);
 
   const handleSeek = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -1674,6 +1713,7 @@ const VideoPlayer = ({
           volume={volume}
           handleVolumeChange={handleVolumeChange}
           toggleCustomFullscreen={toggleCustomFullscreen}
+          toggleTrueFullscreen={toggleTrueFullscreen}
           isCustomFullscreen={isCustomFullscreen}
           showControls={showControls}
           isHost={type === "host"}
