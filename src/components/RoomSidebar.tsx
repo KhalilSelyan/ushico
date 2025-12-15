@@ -1,10 +1,11 @@
 "use client";
 
 import { User } from "better-auth";
-import { FC, useState } from "react";
+import { FC, useState, useEffect } from "react";
 import { MessageSquare, Camera } from "lucide-react";
 import RoomChat from "./RoomChat";
 import WebcamPanel from "./WebcamPanel";
+import { getWebSocketService } from "@/lib/websocket";
 
 interface RoomSidebarProps {
   roomId: string;
@@ -16,6 +17,11 @@ interface RoomSidebarProps {
 
 type TabType = "chat" | "webcams";
 
+interface WebcamUser {
+  odparticipantId: string;
+  participantName: string;
+}
+
 const RoomSidebar: FC<RoomSidebarProps> = ({
   roomId,
   user,
@@ -24,7 +30,45 @@ const RoomSidebar: FC<RoomSidebarProps> = ({
   className,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>("chat");
-  const [webcamCount, setWebcamCount] = useState(0);
+  const [webcamUsers, setWebcamUsers] = useState<Map<string, WebcamUser>>(new Map());
+
+  // Track webcam participants via WebSocket events
+  useEffect(() => {
+    const wsService = getWebSocketService(user.id);
+    const channel = `room-${roomId}`;
+    const unsubscribes: (() => void)[] = [];
+
+    const setupSubscriptions = async () => {
+      const unsubJoin = await wsService.subscribe(channel, "webcam_join", (data: any) => {
+        setWebcamUsers((prev) => {
+          const next = new Map(prev);
+          next.set(data.userId, {
+            odparticipantId: data.userId,
+            participantName: data.userName,
+          });
+          return next;
+        });
+      });
+      unsubscribes.push(unsubJoin);
+
+      const unsubLeave = await wsService.subscribe(channel, "webcam_leave", (data: any) => {
+        setWebcamUsers((prev) => {
+          const next = new Map(prev);
+          next.delete(data.userId);
+          return next;
+        });
+      });
+      unsubscribes.push(unsubLeave);
+    };
+
+    void setupSubscriptions();
+
+    return () => {
+      unsubscribes.forEach((unsub) => unsub());
+    };
+  }, [roomId, user.id]);
+
+  const webcamCount = webcamUsers.size;
 
   return (
     <div
