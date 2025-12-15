@@ -32,6 +32,7 @@ import {
   RoomWebRTCService,
   ConnectionState,
   ConnectionQuality,
+  ViewerInfo,
 } from "@/lib/room-webrtc";
 
 /* Interfaces and types */
@@ -196,6 +197,7 @@ interface WebRTCSourceSelectorProps {
   onStopStream: () => void;
   connectionState: ConnectionState;
   viewerCount: number;
+  viewers: ViewerInfo[];
 }
 
 const WebRTCSourceSelector: React.FC<WebRTCSourceSelectorProps> = ({
@@ -204,6 +206,7 @@ const WebRTCSourceSelector: React.FC<WebRTCSourceSelectorProps> = ({
   onStopStream,
   connectionState,
   viewerCount,
+  viewers,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -214,30 +217,86 @@ const WebRTCSourceSelector: React.FC<WebRTCSourceSelectorProps> = ({
     }
   };
 
+  // Count viewers by connection status
+  const connectedViewers = viewers.filter(v => v.dataConnected && v.mediaConnected).length;
+  const connectingViewers = viewers.filter(v => v.dataConnected && !v.mediaConnected).length;
+
   if (isStreaming) {
     return (
-      <div className="flex items-center gap-4 p-3 bg-zinc-800 rounded-lg">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-          <span className="text-sm text-white">Streaming</span>
+      <div className="flex flex-col gap-2 p-3 bg-zinc-800 rounded-lg">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+            <span className="text-sm text-white">Streaming</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm">
+            {connectedViewers > 0 && (
+              <div className="flex items-center gap-1 text-green-400">
+                <Wifi className="w-4 h-4" />
+                {connectedViewers} connected
+              </div>
+            )}
+            {connectingViewers > 0 && (
+              <div className="flex items-center gap-1 text-yellow-400">
+                <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                {connectingViewers} connecting
+              </div>
+            )}
+            {viewerCount === 0 && (
+              <span className="text-zinc-400">No viewers yet</span>
+            )}
+          </div>
+          <button
+            onClick={onStopStream}
+            className="ml-auto px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+          >
+            Stop
+          </button>
         </div>
-        <div className="flex items-center gap-1 text-sm text-zinc-400">
-          <Wifi className="w-4 h-4" />
-          {viewerCount} viewer{viewerCount !== 1 ? "s" : ""}
-        </div>
-        <button
-          onClick={onStopStream}
-          className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
-        >
-          Stop
-        </button>
+        {/* Viewer details */}
+        {viewers.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-1">
+            {viewers.map((viewer) => (
+              <div
+                key={viewer.peerId}
+                className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${
+                  viewer.mediaConnected
+                    ? "bg-green-900/50 text-green-300"
+                    : "bg-yellow-900/50 text-yellow-300"
+                }`}
+              >
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    viewer.mediaConnected ? "bg-green-400" : "bg-yellow-400 animate-pulse"
+                  }`}
+                />
+                <span>Viewer {viewer.peerId.slice(-4)}</span>
+                {viewer.mediaConnected && viewer.rtt > 0 && (
+                  <span className="text-zinc-400">{viewer.rtt}ms</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-zinc-800 rounded-lg">
-      <div className="text-sm text-zinc-400">Select stream source:</div>
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-zinc-400">Select stream source:</div>
+        {viewerCount > 0 && (
+          <div className="flex items-center gap-2 text-sm">
+            {connectedViewers > 0 && (
+              <span className="text-green-400">{connectedViewers} ready</span>
+            )}
+            {connectingViewers > 0 && (
+              <span className="text-yellow-400">{connectingViewers} waiting</span>
+            )}
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={() => onSelectSource("screen")}
@@ -655,6 +714,7 @@ const VideoPlayer = ({
   const [rtcQuality, setRtcQuality] = useState<ConnectionQuality>("excellent");
   const [isStreaming, setIsStreaming] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
+  const [viewers, setViewers] = useState<ViewerInfo[]>([]);
   const webrtcServiceRef = useRef<RoomWebRTCService | null>(null);
   const rtcVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -772,6 +832,10 @@ const VideoPlayer = ({
           onViewerCountChange: (count) => {
             if (cancelled) return;
             setViewerCount(count);
+          },
+          onViewersChange: (viewerInfos) => {
+            if (cancelled) return;
+            setViewers(viewerInfos);
           },
         });
 
@@ -1358,6 +1422,7 @@ const VideoPlayer = ({
           onStopStream={handleStopStream}
           connectionState={rtcConnectionState}
           viewerCount={viewerCount}
+          viewers={viewers}
         />
       )}
 

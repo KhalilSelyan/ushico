@@ -9,6 +9,13 @@ export type ConnectionState =
 export type ConnectionQuality = "excellent" | "good" | "poor";
 export type StreamSource = "screen" | "file" | "camera";
 
+export interface ViewerInfo {
+  peerId: string;
+  dataConnected: boolean;
+  mediaConnected: boolean;
+  rtt: number;
+}
+
 interface ViewerConnection {
   dataConnection: DataConnection | null;
   mediaConnection: MediaConnection | null;
@@ -23,6 +30,7 @@ interface RoomWebRTCOptions {
   onConnectionQualityChange?: (quality: ConnectionQuality, rtt: number) => void;
   onError?: (error: string) => void;
   onViewerCountChange?: (count: number) => void;
+  onViewersChange?: (viewers: ViewerInfo[]) => void;
 }
 
 interface HeartbeatMessage {
@@ -224,7 +232,7 @@ class RoomWebRTCService {
         rtt: 0,
       };
       this.viewers.set(viewerId, viewer);
-      this.options.onViewerCountChange?.(this.viewers.size);
+      this.notifyViewersChange();
 
       // If we have a stream, call the viewer
       if (this.localStream && this.peer) {
@@ -232,6 +240,7 @@ class RoomWebRTCService {
         const mediaConn = this.peer.call(viewerId, this.localStream);
         viewer.mediaConnection = mediaConn;
         this.setupHostMediaConnection(mediaConn, viewerId);
+        this.notifyViewersChange(); // Update with media connection
       }
     });
 
@@ -249,7 +258,7 @@ class RoomWebRTCService {
     conn.on("close", () => {
       console.log("[RoomWebRTC] Viewer disconnected:", viewerId);
       this.viewers.delete(viewerId);
-      this.options.onViewerCountChange?.(this.viewers.size);
+      this.notifyViewersChange();
     });
 
     conn.on("error", (err) => {
@@ -271,6 +280,7 @@ class RoomWebRTCService {
       const viewer = this.viewers.get(viewerId);
       if (viewer) {
         viewer.mediaConnection = null;
+        this.notifyViewersChange();
       }
     });
 
@@ -300,7 +310,7 @@ class RoomWebRTCService {
           viewer.dataConnection?.close();
           viewer.mediaConnection?.close();
           this.viewers.delete(viewerId);
-          this.options.onViewerCountChange?.(this.viewers.size);
+          this.notifyViewersChange();
         }
       });
     }, this.HEARTBEAT_INTERVAL);
@@ -720,6 +730,23 @@ class RoomWebRTCService {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
+  }
+
+  /**
+   * Notify about viewer changes with detailed info
+   */
+  private notifyViewersChange(): void {
+    const viewerInfos: ViewerInfo[] = [];
+    this.viewers.forEach((viewer) => {
+      viewerInfos.push({
+        peerId: viewer.peerId,
+        dataConnected: viewer.dataConnection?.open ?? false,
+        mediaConnected: viewer.mediaConnection !== null,
+        rtt: viewer.rtt,
+      });
+    });
+    this.options.onViewerCountChange?.(this.viewers.size);
+    this.options.onViewersChange?.(viewerInfos);
   }
 
   /**
