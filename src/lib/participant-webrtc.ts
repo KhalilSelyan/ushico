@@ -183,6 +183,8 @@ class ParticipantWebRTCService {
 
   /**
    * Try to create hub peer, if fails (ID taken) connect as participant
+   * ID taken = hub exists OR stale ID on PeerJS server
+   * Either way, connect as participant and try to reach the hub
    */
   private async tryBecomeHubOrConnect(): Promise<void> {
     if (this.isCleaningUp) {
@@ -192,19 +194,14 @@ class ParticipantWebRTCService {
 
     return new Promise((resolve, reject) => {
       const peerOptions = {
-        debug: 1, // Reduce debug noise
+        debug: 1,
         config: { iceServers: this.ICE_SERVERS },
       };
 
-      // Use suffix if we've had ID conflicts before
-      const hubId = this.hubRetryCount > 0
-        ? `${this.hubPeerId}-${this.hubRetryCount}`
-        : this.hubPeerId;
-
-      console.log("[ParticipantWebRTC] Attempting to become hub:", hubId);
+      console.log("[ParticipantWebRTC] Attempting to become hub:", this.hubPeerId);
 
       // Try to create peer with hub ID
-      this.peer = new Peer(hubId, peerOptions);
+      this.peer = new Peer(this.hubPeerId, peerOptions);
 
       this.peer.on("open", (id) => {
         if (this.isCleaningUp) {
@@ -213,7 +210,6 @@ class ParticipantWebRTCService {
         }
         console.log("[ParticipantWebRTC] Successfully became hub with ID:", id);
         this.isHubParticipant = true;
-        this.hubRetryCount = 0; // Reset on success
         this.options.onHubStatusChange?.(true);
         this.setupHubListeners();
         this.addSelfToParticipants();
@@ -225,9 +221,9 @@ class ParticipantWebRTCService {
         if (this.isCleaningUp) return;
 
         if (err.type === "unavailable-id") {
-          // Hub ID taken - could be stale or actual hub exists
-          this.hubRetryCount++;
-          console.log("[ParticipantWebRTC] Hub ID taken, retry count:", this.hubRetryCount);
+          // Hub ID taken - either real hub exists or stale ID
+          // Always connect as participant to join the same room as others
+          console.log("[ParticipantWebRTC] Hub ID taken, connecting as participant");
 
           // Destroy current peer attempt
           if (this.peer) {
@@ -235,20 +231,7 @@ class ParticipantWebRTCService {
             this.peer = null;
           }
 
-          if (this.hubRetryCount < this.MAX_HUB_RETRIES) {
-            // Try with a suffix (maybe stale ID)
-            console.log("[ParticipantWebRTC] Retrying with suffix...");
-            setTimeout(() => {
-              if (!this.isCleaningUp) {
-                this.tryBecomeHubOrConnect().then(resolve).catch(reject);
-              }
-            }, 500);
-          } else {
-            // Max retries reached, connect as participant (hub actually exists)
-            console.log("[ParticipantWebRTC] Hub exists, connecting as participant");
-            this.hubRetryCount = 0;
-            this.connectAsParticipant().then(resolve).catch(reject);
-          }
+          this.connectAsParticipant().then(resolve).catch(reject);
         } else {
           console.error("[ParticipantWebRTC] Peer error:", err);
           this.options.onError?.(err.message || "Connection error");
@@ -612,18 +595,53 @@ class ParticipantWebRTCService {
     }, this.HEARTBEAT_INTERVAL);
   }
 
+  private hubConnectionTimeoutId: NodeJS.Timeout | null = null;
+
   /**
    * Participant: Connect to hub
    */
   private connectToHub(): void {
-    if (!this.peer) return;
+    if (!this.peer || this.isCleaningUp) return;
 
     console.log("[ParticipantWebRTC] Connecting to hub:", this.hubPeerId);
+
+    // Set timeout - if we can't connect, the hub ID might be stale
+    // Try to become hub ourselves
+    this.hubConnectionTimeoutId = setTimeout(() => {
+      if (!this.hubDataConnection?.open && !this.isCleaningUp) {
+        console.log("[ParticipantWebRTC] Hub connection timeout - hub may be stale, trying to become hub");
+        this.hubDataConnection?.close();
+        this.hubDataConnection = null;
+
+        // Destroy current peer and try to become hub
+        if (this.peer) {
+          this.peer.destroy();
+          this.peer = null;
+        }
+
+        // Wait a bit for PeerJS to release IDs, then try again
+        setTimeout(() => {
+          if (!this.isCleaningUp) {
+            this.tryBecomeHubOrConnect().catch(err => {
+              console.error("[ParticipantWebRTC] Failed to become hub after timeout:", err);
+              this.options.onError?.("Could not connect to webcam session");
+              this.options.onConnectionStateChange?.("failed");
+            });
+          }
+        }, 1000);
+      }
+    }, 5000);
 
     // Create data connection to hub
     this.hubDataConnection = this.peer.connect(this.hubPeerId, { reliable: true });
 
     this.hubDataConnection.on("open", () => {
+      // Clear timeout on successful connection
+      if (this.hubConnectionTimeoutId) {
+        clearTimeout(this.hubConnectionTimeoutId);
+        this.hubConnectionTimeoutId = null;
+      }
+
       console.log("[ParticipantWebRTC] Connected to hub");
       this.lastPongTime = Date.now();
       this.startParticipantHeartbeat();
@@ -657,6 +675,7 @@ class ParticipantWebRTCService {
     });
 
     this.hubDataConnection.on("close", () => {
+      if (this.isCleaningUp) return;
       console.log("[ParticipantWebRTC] Disconnected from hub");
       this.stopHeartbeat();
       this.options.onConnectionStateChange?.("disconnected");
@@ -664,6 +683,7 @@ class ParticipantWebRTCService {
     });
 
     this.hubDataConnection.on("error", (err) => {
+      if (this.isCleaningUp) return;
       console.error("[ParticipantWebRTC] Hub connection error:", err);
       this.options.onError?.("Connection to webcam hub failed");
     });
@@ -1058,6 +1078,11 @@ class ParticipantWebRTCService {
     if (this.reconnectTimeoutId) {
       clearTimeout(this.reconnectTimeoutId);
       this.reconnectTimeoutId = null;
+    }
+
+    if (this.hubConnectionTimeoutId) {
+      clearTimeout(this.hubConnectionTimeoutId);
+      this.hubConnectionTimeoutId = null;
     }
 
     this.options.onConnectionStateChange?.("idle");
