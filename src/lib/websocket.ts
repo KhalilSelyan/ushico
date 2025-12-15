@@ -48,6 +48,11 @@ export type WebSocketEvent =
   // WEBRTC STREAMING
   | "stream_mode_changed"      // Host changed stream mode (url/webrtc)
   | "stream_mode_status"       // Response with current stream mode
+  // PARTICIPANT WEBCAMS
+  | "webcam_join"              // User joined webcam session
+  | "webcam_leave"             // User left webcam session
+  | "webcam_toggle"            // User toggled audio/video
+  | "webcam_hub_change"        // Hub changed (transfer)
 
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -486,6 +491,66 @@ export function sendStreamModeChange(
     userId,
     mode,
     timestamp: new Date().toISOString()
+  });
+}
+
+// Participant Webcam helper functions
+export function sendWebcamJoin(
+  roomId: string,
+  userId: string,
+  userName: string,
+  userImage: string | undefined,
+  audioEnabled: boolean,
+  videoEnabled: boolean,
+  isHub: boolean
+): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "webcam_join", {
+    roomId,
+    userId,
+    userName,
+    userImage,
+    audioEnabled,
+    videoEnabled,
+    isHub,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export function sendWebcamLeave(roomId: string, userId: string): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "webcam_leave", {
+    roomId,
+    userId,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export function sendWebcamToggle(
+  roomId: string,
+  userId: string,
+  audioEnabled?: boolean,
+  videoEnabled?: boolean
+): void {
+  const wsService = getWebSocketService(userId);
+  wsService.send(`room-${roomId}`, "webcam_toggle", {
+    roomId,
+    userId,
+    audioEnabled,
+    videoEnabled,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export function sendWebcamHubChange(
+  roomId: string,
+  newHubUserId: string | null
+): void {
+  const wsService = getWebSocketService();
+  wsService.send(`room-${roomId}`, "webcam_hub_change", {
+    roomId,
+    newHubUserId,
+    timestamp: new Date().toISOString(),
   });
 }
 
