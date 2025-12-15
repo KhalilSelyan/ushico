@@ -11,6 +11,8 @@ export type StreamSource = "screen" | "file" | "camera";
 
 export interface ViewerInfo {
   peerId: string;
+  userName: string;
+  userImage?: string;
   dataConnected: boolean;
   mediaConnected: boolean;
   rtt: number;
@@ -21,6 +23,8 @@ interface ViewerConnection {
   mediaConnection: MediaConnection | null;
   mediaConnected: boolean; // Track if media is actually flowing
   peerId: string;
+  userName: string;
+  userImage?: string;
   lastPongTime: number;
   rtt: number;
 }
@@ -32,12 +36,21 @@ interface RoomWebRTCOptions {
   onError?: (error: string) => void;
   onViewerCountChange?: (count: number) => void;
   onViewersChange?: (viewers: ViewerInfo[]) => void;
+  onReconnecting?: (attempt: number, maxAttempts: number) => void;
 }
 
 interface HeartbeatMessage {
   type: "PING" | "PONG";
   timestamp: number;
 }
+
+interface IdentifyMessage {
+  type: "IDENTIFY";
+  userName: string;
+  userImage?: string;
+}
+
+type DataMessage = HeartbeatMessage | IdentifyMessage;
 
 /**
  * Room-based WebRTC service supporting 1-to-many streaming
@@ -61,6 +74,17 @@ class RoomWebRTCService {
   private rtt: number = 0;
   private currentPeerId: string | null = null;
 
+  // User info (for viewer identification)
+  private userName: string = "";
+  private userImage?: string;
+
+  // Auto-reconnect configuration (viewer only)
+  private autoReconnect = true;
+  private reconnectAttempts = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 5;
+  private readonly RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000];
+  private reconnectTimeoutId: NodeJS.Timeout | null = null;
+
   private readonly ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -83,11 +107,16 @@ class RoomWebRTCService {
   async init(
     roomId: string,
     isHost: boolean,
-    options: RoomWebRTCOptions = {}
+    options: RoomWebRTCOptions = {},
+    userInfo?: { userName: string; userImage?: string }
   ): Promise<void> {
     this.options = options;
     this.isHost = isHost;
     this.roomId = roomId;
+    if (userInfo) {
+      this.userName = userInfo.userName;
+      this.userImage = userInfo.userImage;
+    }
 
     // Cleanup any existing connection and wait for it to fully close
     await this.cleanupAsync();
@@ -224,12 +253,13 @@ class RoomWebRTCService {
     conn.on("open", () => {
       console.log("[RoomWebRTC] Data connection open with viewer:", viewerId);
 
-      // Store viewer connection
+      // Store viewer connection (userName will be updated when IDENTIFY is received)
       const viewer: ViewerConnection = {
         dataConnection: conn,
         mediaConnection: null,
         mediaConnected: false,
         peerId: viewerId,
+        userName: `Viewer ${viewerId.slice(-4)}`, // Default until IDENTIFY
         lastPongTime: Date.now(),
         rtt: 0,
       };
@@ -247,12 +277,21 @@ class RoomWebRTCService {
     });
 
     conn.on("data", (data) => {
-      const msg = data as HeartbeatMessage;
+      const msg = data as DataMessage;
+      const viewer = this.viewers.get(viewerId);
+
       if (msg.type === "PONG") {
-        const viewer = this.viewers.get(viewerId);
         if (viewer) {
-          viewer.rtt = Date.now() - msg.timestamp;
+          viewer.rtt = Date.now() - (msg as HeartbeatMessage).timestamp;
           viewer.lastPongTime = Date.now();
+        }
+      } else if (msg.type === "IDENTIFY") {
+        if (viewer) {
+          const identifyMsg = msg as IdentifyMessage;
+          viewer.userName = identifyMsg.userName;
+          viewer.userImage = identifyMsg.userImage;
+          console.log("[RoomWebRTC] Viewer identified:", viewerId, identifyMsg.userName);
+          this.notifyViewersChange();
         }
       }
     });
@@ -461,6 +500,17 @@ class RoomWebRTCService {
       this.lastPongTime = Date.now();
       this.startViewerHeartbeat();
       this.options.onConnectionStateChange?.("connected");
+
+      // Send IDENTIFY message to host with user info
+      if (this.userName) {
+        const identifyMsg: IdentifyMessage = {
+          type: "IDENTIFY",
+          userName: this.userName,
+          userImage: this.userImage,
+        };
+        conn.send(identifyMsg);
+        console.log("[RoomWebRTC] Sent IDENTIFY to host:", this.userName);
+      }
     });
 
     conn.on("data", (data) => {
@@ -502,6 +552,7 @@ class RoomWebRTCService {
       streamReceived = true;
 
       console.log("[RoomWebRTC] Received stream from host");
+      this.resetReconnectState(); // Reset reconnect on successful stream
       this.options.onRemoteStream?.(remoteStream);
       this.options.onConnectionStateChange?.("connected");
     };
@@ -514,6 +565,9 @@ class RoomWebRTCService {
       call.off("error", onError);
       streamReceived = false;
       this.options.onConnectionStateChange?.("disconnected");
+
+      // Attempt auto-reconnect
+      this.scheduleReconnect();
     };
 
     const onError = (err: Error) => {
@@ -523,6 +577,9 @@ class RoomWebRTCService {
       call.off("close", onClose);
       call.off("error", onError);
       this.options.onError?.("Stream from host failed");
+
+      // Attempt auto-reconnect on error as well
+      this.scheduleReconnect();
     };
 
     call.on("stream", onStream);
@@ -547,6 +604,61 @@ class RoomWebRTCService {
       }
       // NOTE: lastPongTime is updated in setupViewerDataConnection when PING is received
     }, this.HEARTBEAT_INTERVAL);
+  }
+
+  /**
+   * Viewer: Schedule auto-reconnect with exponential backoff
+   */
+  private scheduleReconnect(): void {
+    if (!this.autoReconnect || this.isHost) return;
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      console.log("[RoomWebRTC] Max reconnect attempts reached, giving up");
+      this.options.onError?.("Connection lost - max reconnection attempts reached");
+      return;
+    }
+
+    const delay = this.RECONNECT_DELAYS[Math.min(this.reconnectAttempts, this.RECONNECT_DELAYS.length - 1)];
+    this.reconnectAttempts++;
+
+    console.log(`[RoomWebRTC] Scheduling reconnect attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} in ${delay}ms`);
+    this.options.onReconnecting?.(this.reconnectAttempts, this.MAX_RECONNECT_ATTEMPTS);
+
+    // Clear any existing timeout
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+    }
+
+    this.reconnectTimeoutId = setTimeout(() => {
+      this.reconnectTimeoutId = null;
+      console.log(`[RoomWebRTC] Attempting reconnect ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}`);
+
+      // Clean up old connections but keep the peer
+      if (this.hostDataConnection) {
+        this.hostDataConnection.close();
+        this.hostDataConnection = null;
+      }
+      if (this.hostMediaConnection) {
+        this.hostMediaConnection.close();
+        this.hostMediaConnection = null;
+      }
+      this.stopHeartbeat();
+
+      // Try to reconnect
+      this.connectionRetryCount = 0;
+      this.hostIdSuffix = 0;
+      this.connectToHost();
+    }, delay);
+  }
+
+  /**
+   * Reset reconnect state (called on successful connection)
+   */
+  private resetReconnectState(): void {
+    this.reconnectAttempts = 0;
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
   }
 
   /**
@@ -782,6 +894,8 @@ class RoomWebRTCService {
     this.viewers.forEach((viewer) => {
       viewerInfos.push({
         peerId: viewer.peerId,
+        userName: viewer.userName,
+        userImage: viewer.userImage,
         dataConnected: viewer.dataConnection?.open ?? false,
         mediaConnected: viewer.mediaConnected,
         rtt: viewer.rtt,
@@ -849,6 +963,9 @@ class RoomWebRTCService {
     this.connectionRetryCount = 0;
     this.hostIdSuffix = 0;
     this.initRetryCount = 0;
+
+    // Clear reconnect state
+    this.resetReconnectState();
     this.currentPeerId = null;
     this.callListenerRegistered = false;
 
