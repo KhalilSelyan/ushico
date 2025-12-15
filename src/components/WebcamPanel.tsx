@@ -196,9 +196,23 @@ const WebcamPanel: FC<WebcamPanelProps> = ({ roomId, user }) => {
       )}
 
       {/* Connection status */}
-      {isConnecting && (
-        <div className="bg-yellow-100 border border-yellow-300 text-yellow-700 px-3 py-2 text-sm text-center">
+      {connectionState === "connecting" && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 text-sm text-center flex items-center justify-center gap-2">
+          <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           Connecting to webcam session...
+        </div>
+      )}
+
+      {connectionState === "reconnecting" && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 text-sm text-center flex items-center justify-center gap-2">
+          <div className="w-3 h-3 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
+          Reconnecting...
+        </div>
+      )}
+
+      {connectionState === "disconnected" && isJoined && (
+        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-3 py-2 text-sm text-center">
+          Disconnected from webcam session. Attempting to reconnect...
         </div>
       )}
 
