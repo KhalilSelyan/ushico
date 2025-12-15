@@ -130,7 +130,9 @@ const RoomChat: FC<RoomChatProps> = ({
     return () => {
       unsubscribes.forEach((unsub) => unsub());
     };
-  }, [roomId, user.id, handleUserTyping, handleUserStoppedTyping]);
+    // handleUserTyping and handleUserStoppedTyping are stable (memoized with useCallback)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, user.id]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;

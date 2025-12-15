@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface TypingUser {
   userId: string;
@@ -9,9 +9,15 @@ interface TypingUser {
 export function useTypingIndicator(roomId: string, currentUserId: string) {
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const typingTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const currentUserIdRef = useRef(currentUserId);
 
-  const handleUserTyping = (data: TypingUser) => {
-    if (data.userId === currentUserId) return; // Don't show own typing
+  // Keep ref updated
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
+  const handleUserTyping = useCallback((data: TypingUser) => {
+    if (data.userId === currentUserIdRef.current) return; // Don't show own typing
 
     setTypingUsers(prev => {
       const exists = prev.find(u => u.userId === data.userId);
@@ -31,15 +37,15 @@ export function useTypingIndicator(roomId: string, currentUserId: string) {
       setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
       delete typingTimeoutRef.current[data.userId];
     }, 3000);
-  };
+  }, []);
 
-  const handleUserStoppedTyping = (data: TypingUser) => {
+  const handleUserStoppedTyping = useCallback((data: TypingUser) => {
     setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
     if (typingTimeoutRef.current[data.userId]) {
       clearTimeout(typingTimeoutRef.current[data.userId]);
       delete typingTimeoutRef.current[data.userId];
     }
-  };
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
