@@ -576,10 +576,18 @@ class RoomWebRTCService {
       call.off("close", onClose);
       call.off("error", onError);
       streamReceived = false;
-      this.options.onConnectionStateChange?.("disconnected");
+      this.hostMediaConnection = null;
 
-      // Attempt auto-reconnect
-      this.scheduleReconnect();
+      // Only trigger reconnect if the data connection is also dead
+      // If data connection is still open, host just stopped streaming and may start again
+      if (this.hostDataConnection?.open) {
+        console.log("[RoomWebRTC] Data connection still open, waiting for host to restart stream");
+        // Notify UI that stream stopped but we're still connected
+        this.options.onConnectionStateChange?.("connecting");
+      } else {
+        this.options.onConnectionStateChange?.("disconnected");
+        this.scheduleReconnect();
+      }
     };
 
     const onError = (err: Error) => {
@@ -588,10 +596,16 @@ class RoomWebRTCService {
       call.off("stream", onStream);
       call.off("close", onClose);
       call.off("error", onError);
-      this.options.onError?.("Stream from host failed");
+      this.hostMediaConnection = null;
 
-      // Attempt auto-reconnect on error as well
-      this.scheduleReconnect();
+      // Only reconnect if data connection is also dead
+      if (this.hostDataConnection?.open) {
+        console.log("[RoomWebRTC] Media error but data connection open, waiting for host");
+        this.options.onConnectionStateChange?.("connecting");
+      } else {
+        this.options.onError?.("Stream from host failed");
+        this.scheduleReconnect();
+      }
     };
 
     call.on("stream", onStream);
