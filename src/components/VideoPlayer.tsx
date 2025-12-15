@@ -217,6 +217,13 @@ const WebRTCSourceSelector: React.FC<WebRTCSourceSelectorProps> = ({
     }
   };
 
+  // Get quality color based on RTT thresholds
+  const getQualityColor = (rtt: number) => {
+    if (rtt < 100) return "text-green-400"; // Excellent
+    if (rtt < 300) return "text-yellow-400"; // Good
+    return "text-red-400"; // Poor
+  };
+
   // Count viewers by connection status
   const connectedViewers = viewers.filter(v => v.dataConnected && v.mediaConnected).length;
   const connectingViewers = viewers.filter(v => v.dataConnected && !v.mediaConnected).length;
@@ -270,9 +277,17 @@ const WebRTCSourceSelector: React.FC<WebRTCSourceSelectorProps> = ({
                     viewer.mediaConnected ? "bg-green-400" : "bg-yellow-400 animate-pulse"
                   }`}
                 />
-                <span>Viewer {viewer.peerId.slice(-4)}</span>
+                {viewer.userImage && (
+                  <img
+                    src={viewer.userImage}
+                    alt={viewer.userName}
+                    className="w-4 h-4 rounded-full"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                <span>{viewer.userName}</span>
                 {viewer.mediaConnected && viewer.rtt > 0 && (
-                  <span className="text-zinc-400">{viewer.rtt}ms</span>
+                  <span className={getQualityColor(viewer.rtt)}>{viewer.rtt}ms</span>
                 )}
               </div>
             ))}
@@ -344,12 +359,16 @@ interface WebRTCViewerStatusProps {
   connectionState: ConnectionState;
   rtcQuality: ConnectionQuality;
   onReconnect?: () => void;
+  reconnectInfo?: { attempt: number; maxAttempts: number } | null;
+  streamHealth?: "healthy" | "stalled" | "dead";
 }
 
 const WebRTCViewerStatus: React.FC<WebRTCViewerStatusProps> = ({
   connectionState,
   rtcQuality,
   onReconnect,
+  reconnectInfo,
+  streamHealth = "healthy",
 }) => {
   if (connectionState === "connected") {
     return (
@@ -364,6 +383,15 @@ const WebRTCViewerStatus: React.FC<WebRTCViewerStatusProps> = ({
           }`}
         />
         <span className="text-sm text-zinc-300">Connected to host stream</span>
+        {streamHealth !== "healthy" && (
+          <span className={`text-xs px-1.5 py-0.5 rounded ${
+            streamHealth === "stalled"
+              ? "bg-yellow-900/50 text-yellow-300"
+              : "bg-red-900/50 text-red-300"
+          }`}>
+            {streamHealth === "stalled" ? "Stalled" : "No data"}
+          </span>
+        )}
       </div>
     );
   }
@@ -378,6 +406,18 @@ const WebRTCViewerStatus: React.FC<WebRTCViewerStatusProps> = ({
   }
 
   if (connectionState === "disconnected" || connectionState === "failed") {
+    // Show auto-reconnect status if active
+    if (reconnectInfo) {
+      return (
+        <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-lg">
+          <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-yellow-300">
+            Reconnecting ({reconnectInfo.attempt}/{reconnectInfo.maxAttempts})...
+          </span>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-lg">
         <WifiOff className="w-4 h-4 text-red-500" />
@@ -414,6 +454,7 @@ interface VideoElementProps {
   setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   setDuration: React.Dispatch<React.SetStateAction<number>>;
   setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsBuffering: React.Dispatch<React.SetStateAction<boolean>>;
   type: "host" | "watcher";
 }
 
@@ -426,6 +467,7 @@ const VideoElement: React.FC<VideoElementProps> = ({
   setCurrentTime,
   setDuration,
   setIsPlaying,
+  setIsBuffering,
   type,
 }) => {
   const [isSeeking, setIsSeeking] = useState(false);
@@ -438,6 +480,7 @@ const VideoElement: React.FC<VideoElementProps> = ({
     videoElement.load();
 
     const handleWaiting = () => {
+      setIsBuffering(true);
       if (type === "watcher") {
         setError("Buffering... Please wait");
       }
@@ -456,6 +499,7 @@ const VideoElement: React.FC<VideoElementProps> = ({
     };
 
     const handleCanPlay = () => {
+      setIsBuffering(false);
       setError(null);
       // Initial sync when video is ready
       if (type === "host") {
@@ -478,6 +522,10 @@ const VideoElement: React.FC<VideoElementProps> = ({
       setIsPlaying(false);
     };
 
+    const handlePlaying = () => {
+      setIsBuffering(false);
+    };
+
     videoElement.addEventListener("waiting", handleWaiting);
     videoElement.addEventListener("seeking", handleSeeking);
     videoElement.addEventListener("seeked", handleSeeked);
@@ -485,6 +533,7 @@ const VideoElement: React.FC<VideoElementProps> = ({
     videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
     videoElement.addEventListener("play", handlePlay);
     videoElement.addEventListener("pause", handlePause);
+    videoElement.addEventListener("playing", handlePlaying);
 
     return () => {
       videoElement.removeEventListener("waiting", handleWaiting);
@@ -494,8 +543,9 @@ const VideoElement: React.FC<VideoElementProps> = ({
       videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
       videoElement.removeEventListener("play", handlePlay);
       videoElement.removeEventListener("pause", handlePause);
+      videoElement.removeEventListener("playing", handlePlaying);
     };
-  }, [url, sourceRef, setError, setIsPlaying, type, syncVideoState]);
+  }, [url, sourceRef, setError, setIsPlaying, setIsBuffering, type, syncVideoState]);
 
   useEffect(() => {
     if (!sourceRef.current) return;
@@ -699,6 +749,7 @@ const VideoPlayer = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [showControls, setShowControls] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const [showInterface, setShowInterface] = useState(true);
   const [connectionQuality, setConnectionQuality] = useState<"good" | "poor">(
@@ -715,6 +766,9 @@ const VideoPlayer = ({
   const [isStreaming, setIsStreaming] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const [viewers, setViewers] = useState<ViewerInfo[]>([]);
+  const [reconnectInfo, setReconnectInfo] = useState<{ attempt: number; maxAttempts: number } | null>(null);
+  const [streamHealth, setStreamHealth] = useState<"healthy" | "stalled" | "dead">("healthy");
+  const lastTimeUpdateRef = useRef<number>(Date.now());
   const webrtcServiceRef = useRef<RoomWebRTCService | null>(null);
   const rtcVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -727,11 +781,16 @@ const VideoPlayer = ({
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const progressRef = useRef<HTMLDivElement>(null);
 
+  // Latency compensation for URL sync
+  const estimatedLatencyRef = useRef<number>(0);
+  const latencySamplesRef = useRef<number[]>([]);
+
   // Constants
   const SYNC_INTERVAL = 1000 * 60 * 5; // 5 minutes
   const TIME_SYNC_THRESHOLD = 2.5; // seconds
   const SYNC_RETRY_INTERVAL = 5000; // 5 seconds
   const CONTROLS_HIDE_DELAY = 2000;
+  const MAX_LATENCY_SAMPLES = 10;
 
   useEffect(() => {
     setType(userRole === "host" ? "host" : "watcher");
@@ -799,6 +858,10 @@ const VideoPlayer = ({
             if (cancelled) return;
             console.log("[VideoPlayer] RTC connection state:", state);
             setRtcConnectionState(state);
+            // Clear reconnect info on successful connection
+            if (state === "connected") {
+              setReconnectInfo(null);
+            }
           },
           onRemoteStream: (stream) => {
             if (cancelled) return;
@@ -837,7 +900,12 @@ const VideoPlayer = ({
             if (cancelled) return;
             setViewers(viewerInfos);
           },
-        });
+          onReconnecting: (attempt, maxAttempts) => {
+            if (cancelled) return;
+            console.log(`[VideoPlayer] Reconnecting: attempt ${attempt}/${maxAttempts}`);
+            setReconnectInfo({ attempt, maxAttempts });
+          },
+        }, { userName: user.name || "Anonymous", userImage: user.image || undefined });
 
         // Only assign to ref if init completed and we weren't cancelled
         if (!cancelled) {
@@ -861,6 +929,45 @@ const VideoPlayer = ({
       webrtcServiceRef.current = null;
     };
   }, [streamMode, roomId, userRole, volume]);
+
+  // Stream health monitoring for WebRTC viewers
+  useEffect(() => {
+    if (streamMode !== "webrtc" || type === "host" || !rtcVideoRef.current) return;
+
+    const video = rtcVideoRef.current;
+
+    const onTimeUpdate = () => {
+      lastTimeUpdateRef.current = Date.now();
+      setStreamHealth("healthy");
+    };
+
+    // Also reset health when stream starts playing
+    const onPlaying = () => {
+      lastTimeUpdateRef.current = Date.now();
+      setStreamHealth("healthy");
+    };
+
+    const healthCheck = setInterval(() => {
+      // Only check if we're supposed to be connected
+      if (rtcConnectionState !== "connected") return;
+
+      const timeSinceUpdate = Date.now() - lastTimeUpdateRef.current;
+      if (timeSinceUpdate > 5000) {
+        setStreamHealth("dead");
+      } else if (timeSinceUpdate > 2000) {
+        setStreamHealth("stalled");
+      }
+    }, 1000);
+
+    video.addEventListener("timeupdate", onTimeUpdate);
+    video.addEventListener("playing", onPlaying);
+
+    return () => {
+      video.removeEventListener("timeupdate", onTimeUpdate);
+      video.removeEventListener("playing", onPlaying);
+      clearInterval(healthCheck);
+    };
+  }, [streamMode, type, rtcConnectionState]);
 
   // Handle stream source selection (host only)
   const handleSelectSource = useCallback(
@@ -974,7 +1081,7 @@ const VideoPlayer = ({
         onViewerCountChange: (count) => {
           setViewerCount(count);
         },
-      });
+      }, { userName: user.name || "Anonymous", userImage: user.image || undefined });
 
       webrtcServiceRef.current = service;
     } catch (err) {
@@ -1042,6 +1149,7 @@ const VideoPlayer = ({
         roomId: roomId,
         state: currentState,
         videoId: currentVideoId,
+        sentAt: Date.now(), // Add timestamp for latency compensation
       };
       await wsService.send(`room-${roomId}`, "host_sync", syncData);
     }
@@ -1116,6 +1224,18 @@ const VideoPlayer = ({
         lastKnownState.current = data as SyncData;
         const syncData = data as SyncData;
 
+        // Estimate latency from sentAt timestamp
+        if (syncData.sentAt) {
+          const oneWayLatency = (now - syncData.sentAt) / 2; // Estimate one-way latency
+          latencySamplesRef.current.push(oneWayLatency);
+          if (latencySamplesRef.current.length > MAX_LATENCY_SAMPLES) {
+            latencySamplesRef.current.shift();
+          }
+          // Calculate average latency
+          const avgLatency = latencySamplesRef.current.reduce((a, b) => a + b, 0) / latencySamplesRef.current.length;
+          estimatedLatencyRef.current = avgLatency;
+        }
+
         // Handle URL updates with video ID
         if (syncData.url && syncData.url !== lastKnownUrl.current) {
           lastKnownUrl.current = syncData.url;
@@ -1135,7 +1255,13 @@ const VideoPlayer = ({
 
         const syncActions = async () => {
           if (timeDifference > TIME_SYNC_THRESHOLD) {
-            sourceRef.current!.currentTime = syncData.timestamp;
+            // Apply latency compensation - seek slightly ahead to account for network delay
+            const latencyCompensation = estimatedLatencyRef.current / 1000; // Convert to seconds
+            const compensatedTime = Math.min(
+              syncData.timestamp + latencyCompensation,
+              sourceRef.current!.duration || syncData.timestamp
+            );
+            sourceRef.current!.currentTime = compensatedTime;
           }
 
           try {
@@ -1229,37 +1355,6 @@ const VideoPlayer = ({
   }, []);
 
   useEffect(() => {
-    const isInputFocused = () => {
-      const activeElement = document.activeElement;
-      return (
-        activeElement instanceof HTMLInputElement ||
-        activeElement instanceof HTMLTextAreaElement ||
-        (activeElement instanceof HTMLElement && activeElement.contentEditable === "true")
-      );
-    };
-
-    const handleEscKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isCustomFullscreen) {
-        setIsCustomFullscreen(false);
-        setShowInterface(true);
-      }
-    };
-
-    const handleFKey = (event: KeyboardEvent) => {
-      if (event.key === "f" && !isInputFocused()) {
-        toggleCustomFullscreen();
-      }
-    };
-
-    document.addEventListener("keydown", handleEscKey);
-    document.addEventListener("keydown", handleFKey);
-    return () => {
-      document.removeEventListener("keydown", handleEscKey);
-      document.removeEventListener("keydown", handleFKey);
-    };
-  }, [isCustomFullscreen, toggleCustomFullscreen]);
-
-  useEffect(() => {
     if (!sourceRef.current) return;
 
     const handleFullscreenChange = (event: Event) => {
@@ -1332,6 +1427,66 @@ const VideoPlayer = ({
     }
     setVolume(clampedVolume);
   }, []);
+
+  // Keyboard shortcuts effect - placed after togglePlay and handleVolumeChange are defined
+  useEffect(() => {
+    const isInputFocused = () => {
+      const activeElement = document.activeElement;
+      return (
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        (activeElement instanceof HTMLElement && activeElement.contentEditable === "true")
+      );
+    };
+
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (isInputFocused()) return;
+
+      switch (event.key) {
+        case "Escape":
+          if (isCustomFullscreen) {
+            setIsCustomFullscreen(false);
+            setShowInterface(true);
+          }
+          break;
+        case "f":
+          toggleCustomFullscreen();
+          break;
+        case " ": // Space - play/pause (host only, URL mode)
+          event.preventDefault();
+          if (type === "host" && streamMode === "url") {
+            void togglePlay();
+          }
+          break;
+        case "m": // Mute toggle
+          handleVolumeChange(volume === 0 ? 1 : 0);
+          break;
+        case "ArrowLeft": // Seek back 5s (host only, URL mode)
+          if (type === "host" && streamMode === "url" && sourceRef.current) {
+            sourceRef.current.currentTime = Math.max(0, sourceRef.current.currentTime - 5);
+          }
+          break;
+        case "ArrowRight": // Seek forward 5s (host only, URL mode)
+          if (type === "host" && streamMode === "url" && sourceRef.current) {
+            sourceRef.current.currentTime = Math.min(duration, sourceRef.current.currentTime + 5);
+          }
+          break;
+        case "ArrowUp": // Volume up
+          event.preventDefault();
+          handleVolumeChange(Math.min(1, volume + 0.1));
+          break;
+        case "ArrowDown": // Volume down
+          event.preventDefault();
+          handleVolumeChange(Math.max(0, volume - 0.1));
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handleKeydown);
+    return () => {
+      document.removeEventListener("keydown", handleKeydown);
+    };
+  }, [isCustomFullscreen, toggleCustomFullscreen, type, streamMode, volume, duration, togglePlay, handleVolumeChange]);
 
   const handleSeek = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -1432,6 +1587,8 @@ const VideoPlayer = ({
           connectionState={rtcConnectionState}
           rtcQuality={rtcQuality}
           onReconnect={handleReconnect}
+          reconnectInfo={reconnectInfo}
+          streamHealth={streamHealth}
         />
       )}
 
@@ -1475,6 +1632,7 @@ const VideoPlayer = ({
             setCurrentTime={setCurrentTime}
             setDuration={setDuration}
             setIsPlaying={setIsPlaying}
+            setIsBuffering={setIsBuffering}
             type={type}
           />
         )}
@@ -1490,7 +1648,20 @@ const VideoPlayer = ({
             }`}
             playsInline
             autoPlay
+            onWaiting={() => setIsBuffering(true)}
+            onPlaying={() => setIsBuffering(false)}
+            onCanPlay={() => setIsBuffering(false)}
           />
+        )}
+
+        {/* Buffering Indicator */}
+        {isBuffering && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
+              <span className="text-white text-sm">Buffering...</span>
+            </div>
+          </div>
         )}
 
         {/* Floating Reactions */}
