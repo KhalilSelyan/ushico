@@ -107,10 +107,30 @@ class ParticipantWebRTCService {
   private readonly RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000];
   private reconnectTimeoutId: NodeJS.Timeout | null = null;
 
+  // ICE servers for WebRTC connectivity
+  // STUN helps discover public IP, TURN relays traffic when direct connection fails
+  // TURN is essential for VPNs, strict NATs, and corporate firewalls
   private readonly ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
+    // Free TURN servers from Open Relay Project (for development/testing)
+    // For production, use your own TURN server or a paid service
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
   ];
 
   private readonly HEARTBEAT_INTERVAL = 3000;
