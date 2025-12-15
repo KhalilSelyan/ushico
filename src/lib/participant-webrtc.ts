@@ -369,7 +369,7 @@ class ParticipantWebRTCService {
   private handleParticipantConnection(conn: DataConnection): void {
     const odpeerId = conn.peer;
 
-    conn.on("open", () => {
+    const onConnectionOpen = () => {
       console.log("[ParticipantWebRTC] Data connection open with:", odpeerId);
 
       // Initialize participant entry
@@ -412,13 +412,16 @@ class ParticipantWebRTCService {
       });
       conn.send({ type: "PARTICIPANTS_LIST", participants: participantsList } as HubMessage);
 
-      // Call participant with hub's stream
-      if (this.localStream && this.peer) {
-        const mediaConn = this.peer.call(odpeerId, this.localStream);
-        participant.mediaConnection = mediaConn;
-        this.setupHubMediaConnection(mediaConn, odpeerId);
-      }
-    });
+      // NOTE: Don't call participant yet - wait for their IDENTIFY message
+      // This ensures they're ready to receive the call
+    };
+
+    // Check if connection is already open (can happen in PeerJS)
+    if (conn.open) {
+      onConnectionOpen();
+    } else {
+      conn.on("open", onConnectionOpen);
+    }
 
     conn.on("data", (data) => {
       const msg = data as HubMessage;
@@ -483,6 +486,14 @@ class ParticipantWebRTCService {
           if (participant.stream) {
             console.log("[ParticipantWebRTC] Processing stream that arrived before IDENTIFY");
             this.processParticipantStream(odpeerId, participant);
+          }
+
+          // Now that participant is identified and ready, call them with hub's stream
+          if (this.localStream && this.peer && !participant.mediaConnection) {
+            console.log("[ParticipantWebRTC] Calling participant with hub stream:", odpeerId);
+            const mediaConn = this.peer.call(odpeerId, this.localStream);
+            participant.mediaConnection = mediaConn;
+            this.setupHubMediaConnection(mediaConn, odpeerId);
           }
         }
         break;
