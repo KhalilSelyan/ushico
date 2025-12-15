@@ -478,6 +478,12 @@ class ParticipantWebRTCService {
               videoEnabled: msg.videoEnabled,
             },
           }, odpeerId);
+
+          // If stream was received before IDENTIFY, process it now
+          if (participant.stream) {
+            console.log("[ParticipantWebRTC] Processing stream that arrived before IDENTIFY");
+            this.processParticipantStream(odpeerId, participant);
+          }
         }
         break;
 
@@ -532,18 +538,13 @@ class ParticipantWebRTCService {
       if (participant) {
         participant.stream = stream;
 
-        // Update in allParticipants
-        const p = this.allParticipants.get(participant.odparticipantId);
-        if (p) {
-          p.stream = stream;
-          this.options.onParticipantUpdated?.(p);
+        // If participant is already identified, update UI and relay
+        // Otherwise, stream will be processed when IDENTIFY is received
+        if (participant.odparticipantId) {
+          this.processParticipantStream(odpeerId, participant);
+        } else {
+          console.log("[ParticipantWebRTC] Stream received before IDENTIFY, will process after identification");
         }
-
-        // Relay this participant's stream to all other participants
-        this.relayStreamToOthers(odpeerId, stream);
-
-        // Send all existing streams to this new participant
-        this.sendExistingStreamsToNewParticipant(odpeerId);
       }
     });
 
@@ -554,6 +555,27 @@ class ParticipantWebRTCService {
     call.on("error", (err) => {
       console.error("[ParticipantWebRTC] Media connection error:", odpeerId, err);
     });
+  }
+
+  /**
+   * Hub: Process a participant's stream after identification
+   * Updates UI and relays stream to other participants
+   */
+  private processParticipantStream(odpeerId: string, participant: ParticipantConnection): void {
+    // Update in allParticipants
+    const p = this.allParticipants.get(participant.odparticipantId);
+    if (p && participant.stream) {
+      p.stream = participant.stream;
+      this.options.onParticipantUpdated?.(p);
+    }
+
+    // Relay this participant's stream to all other participants
+    if (participant.stream) {
+      this.relayStreamToOthers(odpeerId, participant.stream);
+    }
+
+    // Send all existing streams to this new participant
+    this.sendExistingStreamsToNewParticipant(odpeerId);
   }
 
   // Hub: Track relay calls per participant (targetPeerId -> sourcePeerId -> MediaConnection)
