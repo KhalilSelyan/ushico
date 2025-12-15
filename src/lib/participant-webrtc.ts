@@ -116,6 +116,11 @@ class ParticipantWebRTCService {
   private readonly HEARTBEAT_INTERVAL = 3000;
   private readonly DISCONNECT_THRESHOLD = 12000;
 
+  // Retry state for hub ID conflicts
+  private hubRetryCount = 0;
+  private readonly MAX_HUB_RETRIES = 3;
+  private isCleaningUp = false;
+
   /**
    * Initialize service for a room
    */
@@ -142,6 +147,10 @@ class ParticipantWebRTCService {
       console.log("[ParticipantWebRTC] Already in session");
       return;
     }
+
+    // Reset retry count on fresh join
+    this.hubRetryCount = 0;
+    this.isCleaningUp = false;
 
     this.videoEnabled = options.video;
     this.audioEnabled = options.audio;
@@ -176,20 +185,35 @@ class ParticipantWebRTCService {
    * Try to create hub peer, if fails (ID taken) connect as participant
    */
   private async tryBecomeHubOrConnect(): Promise<void> {
+    if (this.isCleaningUp) {
+      console.log("[ParticipantWebRTC] Cleanup in progress, aborting connection");
+      return;
+    }
+
     return new Promise((resolve, reject) => {
       const peerOptions = {
-        debug: 2,
+        debug: 1, // Reduce debug noise
         config: { iceServers: this.ICE_SERVERS },
       };
 
-      console.log("[ParticipantWebRTC] Attempting to become hub:", this.hubPeerId);
+      // Use suffix if we've had ID conflicts before
+      const hubId = this.hubRetryCount > 0
+        ? `${this.hubPeerId}-${this.hubRetryCount}`
+        : this.hubPeerId;
+
+      console.log("[ParticipantWebRTC] Attempting to become hub:", hubId);
 
       // Try to create peer with hub ID
-      this.peer = new Peer(this.hubPeerId, peerOptions);
+      this.peer = new Peer(hubId, peerOptions);
 
       this.peer.on("open", (id) => {
+        if (this.isCleaningUp) {
+          this.peer?.destroy();
+          return;
+        }
         console.log("[ParticipantWebRTC] Successfully became hub with ID:", id);
         this.isHubParticipant = true;
+        this.hubRetryCount = 0; // Reset on success
         this.options.onHubStatusChange?.(true);
         this.setupHubListeners();
         this.addSelfToParticipants();
@@ -198,12 +222,33 @@ class ParticipantWebRTCService {
       });
 
       this.peer.on("error", (err) => {
+        if (this.isCleaningUp) return;
+
         if (err.type === "unavailable-id") {
-          // Hub already exists, connect as regular participant
-          console.log("[ParticipantWebRTC] Hub exists, connecting as participant");
-          this.peer?.destroy();
-          this.peer = null;
-          this.connectAsParticipant().then(resolve).catch(reject);
+          // Hub ID taken - could be stale or actual hub exists
+          this.hubRetryCount++;
+          console.log("[ParticipantWebRTC] Hub ID taken, retry count:", this.hubRetryCount);
+
+          // Destroy current peer attempt
+          if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+          }
+
+          if (this.hubRetryCount < this.MAX_HUB_RETRIES) {
+            // Try with a suffix (maybe stale ID)
+            console.log("[ParticipantWebRTC] Retrying with suffix...");
+            setTimeout(() => {
+              if (!this.isCleaningUp) {
+                this.tryBecomeHubOrConnect().then(resolve).catch(reject);
+              }
+            }, 500);
+          } else {
+            // Max retries reached, connect as participant (hub actually exists)
+            console.log("[ParticipantWebRTC] Hub exists, connecting as participant");
+            this.hubRetryCount = 0;
+            this.connectAsParticipant().then(resolve).catch(reject);
+          }
         } else {
           console.error("[ParticipantWebRTC] Peer error:", err);
           this.options.onError?.(err.message || "Connection error");
@@ -213,8 +258,10 @@ class ParticipantWebRTCService {
       });
 
       this.peer.on("disconnected", () => {
+        if (this.isCleaningUp) return;
         console.log("[ParticipantWebRTC] Peer disconnected");
-        if (this.peer && !this.peer.destroyed) {
+        // Don't auto-reconnect during initial connection
+        if (this.peer && !this.peer.destroyed && this.isHubParticipant) {
           this.peer.reconnect();
         }
       });
@@ -225,9 +272,14 @@ class ParticipantWebRTCService {
    * Connect as regular participant (hub already exists)
    */
   private async connectAsParticipant(): Promise<void> {
+    if (this.isCleaningUp) {
+      console.log("[ParticipantWebRTC] Cleanup in progress, aborting participant connection");
+      return;
+    }
+
     return new Promise((resolve, reject) => {
       const peerOptions = {
-        debug: 2,
+        debug: 1,
         config: { iceServers: this.ICE_SERVERS },
       };
 
@@ -235,6 +287,10 @@ class ParticipantWebRTCService {
       this.peer = new Peer(peerOptions);
 
       this.peer.on("open", (id) => {
+        if (this.isCleaningUp) {
+          this.peer?.destroy();
+          return;
+        }
         console.log("[ParticipantWebRTC] Connected as participant with ID:", id);
         this.isHubParticipant = false;
         this.options.onHubStatusChange?.(false);
@@ -245,6 +301,7 @@ class ParticipantWebRTCService {
       });
 
       this.peer.on("error", (err) => {
+        if (this.isCleaningUp) return;
         console.error("[ParticipantWebRTC] Participant peer error:", err);
         if (err.type === "peer-unavailable") {
           this.options.onError?.("Webcam hub not available");
@@ -258,12 +315,14 @@ class ParticipantWebRTCService {
 
       // Listen for incoming calls from hub (stream relay)
       this.peer.on("call", (call) => {
+        if (this.isCleaningUp) return;
         console.log("[ParticipantWebRTC] Receiving stream from hub");
         call.answer(this.localStream || undefined);
         this.setupParticipantMediaConnection(call);
       });
 
       this.peer.on("disconnected", () => {
+        if (this.isCleaningUp) return;
         console.log("[ParticipantWebRTC] Participant peer disconnected");
         this.options.onConnectionStateChange?.("disconnected");
         if (this.peer && !this.peer.destroyed) {
@@ -957,6 +1016,9 @@ class ParticipantWebRTCService {
   cleanup(): void {
     console.log("[ParticipantWebRTC] Cleaning up...");
 
+    // Set flag to prevent reconnect attempts during cleanup
+    this.isCleaningUp = true;
+
     this.stopHeartbeat();
 
     // Stop local stream
@@ -990,6 +1052,7 @@ class ParticipantWebRTCService {
     // Reset state
     this.isHubParticipant = false;
     this.reconnectAttempts = 0;
+    this.hubRetryCount = 0;
     this.lastPongTime = Date.now();
 
     if (this.reconnectTimeoutId) {
