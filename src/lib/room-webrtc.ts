@@ -286,12 +286,15 @@ class RoomWebRTCService {
           viewer.lastPongTime = Date.now();
         }
       } else if (msg.type === "IDENTIFY") {
+        console.log("[RoomWebRTC] Received IDENTIFY from viewer:", viewerId, msg);
         if (viewer) {
           const identifyMsg = msg as IdentifyMessage;
-          viewer.userName = identifyMsg.userName;
+          viewer.userName = identifyMsg.userName || viewer.userName;
           viewer.userImage = identifyMsg.userImage;
-          console.log("[RoomWebRTC] Viewer identified:", viewerId, identifyMsg.userName);
+          console.log("[RoomWebRTC] Viewer identified:", viewerId, "->", viewer.userName);
           this.notifyViewersChange();
+        } else {
+          console.warn("[RoomWebRTC] Received IDENTIFY but viewer not in map:", viewerId);
         }
       }
     });
@@ -495,22 +498,28 @@ class RoomWebRTCService {
    * Viewer: Set up data connection to host
    */
   private setupViewerDataConnection(conn: DataConnection): void {
+    let identifySent = false;
+
+    const sendIdentify = () => {
+      if (identifySent || !this.userName || !conn.open) return;
+      identifySent = true;
+      const identifyMsg: IdentifyMessage = {
+        type: "IDENTIFY",
+        userName: this.userName,
+        userImage: this.userImage,
+      };
+      conn.send(identifyMsg);
+      console.log("[RoomWebRTC] Sent IDENTIFY to host:", this.userName);
+    };
+
     conn.on("open", () => {
       console.log("[RoomWebRTC] Connected to host");
       this.lastPongTime = Date.now();
       this.startViewerHeartbeat();
       this.options.onConnectionStateChange?.("connected");
 
-      // Send IDENTIFY message to host with user info
-      if (this.userName) {
-        const identifyMsg: IdentifyMessage = {
-          type: "IDENTIFY",
-          userName: this.userName,
-          userImage: this.userImage,
-        };
-        conn.send(identifyMsg);
-        console.log("[RoomWebRTC] Sent IDENTIFY to host:", this.userName);
-      }
+      // Send IDENTIFY message to host with user info (with small delay for reliability)
+      setTimeout(sendIdentify, 100);
     });
 
     conn.on("data", (data) => {
@@ -520,6 +529,9 @@ class RoomWebRTCService {
         // This proves the connection is alive
         this.lastPongTime = Date.now();
         conn.send({ type: "PONG", timestamp: msg.timestamp });
+
+        // Also send IDENTIFY as backup if not sent yet (ensures host gets it after connection is stable)
+        sendIdentify();
       }
     });
 
