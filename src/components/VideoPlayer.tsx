@@ -578,11 +578,7 @@ const VideoElement: React.FC<VideoElementProps> = ({
   return (
     <video
       ref={sourceRef}
-      className={`${
-        isCustomFullscreen
-          ? "h-full w-full object-contain"
-          : "h-full min-h-full w-auto min-w-full max-w-none border-2 border-black portrait:h-2/5 portrait:w-full landscape:h-full landscape:w-3/5"
-      }`}
+      className="absolute inset-0 h-full w-full object-contain"
       preload="auto"
       playsInline
       autoPlay
@@ -1641,11 +1637,7 @@ const VideoPlayer = ({
         {streamMode === "webrtc" && (
           <video
             ref={rtcVideoRef}
-            className={`${
-              isCustomFullscreen
-                ? "h-full w-full object-contain"
-                : "h-full min-h-full w-auto min-w-full max-w-none border-2 border-black portrait:h-2/5 portrait:w-full landscape:h-full landscape:w-3/5"
-            }`}
+            className="absolute inset-0 h-full w-full object-contain"
             playsInline
             autoPlay
             onWaiting={() => setIsBuffering(true)}
