@@ -223,18 +223,10 @@ const RoomChat: FC<RoomChatProps> = ({
 
   return (
     <div
-      className={`flex flex-col h-full bg-white border-l border-gray-200 overflow-hidden ${
+      className={`flex flex-col h-full bg-white overflow-hidden ${
         className || ""
       }`}
     >
-      {/* Chat Header */}
-      <div className="border-b border-gray-200 p-4">
-        <h3 className="text-lg font-semibold text-gray-900">Room Chat</h3>
-        <p className="text-sm text-gray-500">
-          {participants.length} participants
-        </p>
-      </div>
-
       {/* Announcements */}
       {announcements.length > 0 && (
         <div className="p-2 border-b">

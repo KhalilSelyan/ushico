@@ -3,7 +3,7 @@
 import { User } from "better-auth";
 import { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
-import RoomChat from "./RoomChat";
+import RoomSidebar from "./RoomSidebar";
 import RoomInviteModal from "./RoomInviteModal";
 import WatchHeaderClient from "./WatchHeaderClient";
 import { MessageSquare, X, UserPlus } from "lucide-react";
@@ -104,9 +104,9 @@ const RoomWatchClient = ({
         </button>
       </div>
 
-      {/* Desktop Chat Panel - Hidden on mobile, visible on large screens */}
+      {/* Desktop Sidebar Panel - Hidden on mobile, visible on large screens */}
       <div className="hidden lg:flex lg:flex-col w-80 flex-shrink-0 overflow-hidden">
-        <RoomChat
+        <RoomSidebar
           roomId={roomId}
           user={user}
           participants={participants}
@@ -115,12 +115,12 @@ const RoomWatchClient = ({
         />
       </div>
 
-      {/* Mobile Chat Overlay */}
+      {/* Mobile Sidebar Overlay */}
       {isMobileChatOpen && (
         <div className="lg:hidden fixed inset-0 z-50 bg-black bg-opacity-50">
-          <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-white rounded-t-lg">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold">Room Chat</h3>
+          <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-white rounded-t-lg flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
+              <h3 className="text-lg font-semibold">Room</h3>
               <button
                 onClick={() => setIsMobileChatOpen(false)}
                 className="text-gray-500 hover:text-gray-700"
@@ -128,8 +128,8 @@ const RoomWatchClient = ({
                 <X className="w-6 h-6" />
               </button>
             </div>
-            <div className="h-full pb-16">
-              <RoomChat
+            <div className="flex-1 overflow-hidden">
+              <RoomSidebar
                 roomId={roomId}
                 user={user}
                 participants={participants}
