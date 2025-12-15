@@ -19,6 +19,7 @@ export interface ViewerInfo {
 interface ViewerConnection {
   dataConnection: DataConnection | null;
   mediaConnection: MediaConnection | null;
+  mediaConnected: boolean; // Track if media is actually flowing
   peerId: string;
   lastPongTime: number;
   rtt: number;
@@ -227,6 +228,7 @@ class RoomWebRTCService {
       const viewer: ViewerConnection = {
         dataConnection: conn,
         mediaConnection: null,
+        mediaConnected: false,
         peerId: viewerId,
         lastPongTime: Date.now(),
         rtt: 0,
@@ -270,6 +272,40 @@ class RoomWebRTCService {
    * Host: Set up media connection handlers for a viewer
    */
   private setupHostMediaConnection(call: MediaConnection, viewerId: string): void {
+    // Monitor ICE connection state to know when media is actually flowing
+    // PeerJS exposes the underlying RTCPeerConnection via peerConnection property
+    const checkConnection = () => {
+      const pc = (call as any).peerConnection as RTCPeerConnection | undefined;
+      if (pc) {
+        const updateMediaConnected = (connected: boolean) => {
+          const viewer = this.viewers.get(viewerId);
+          if (viewer && viewer.mediaConnected !== connected) {
+            viewer.mediaConnected = connected;
+            console.log(`[RoomWebRTC] Viewer ${viewerId} media ${connected ? 'connected' : 'disconnected'}`);
+            this.notifyViewersChange();
+          }
+        };
+
+        // Check current state
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          updateMediaConnected(true);
+        }
+
+        // Listen for state changes
+        pc.oniceconnectionstatechange = () => {
+          console.log(`[RoomWebRTC] Viewer ${viewerId} ICE state:`, pc.iceConnectionState);
+          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            updateMediaConnected(true);
+          } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+            updateMediaConnected(false);
+          }
+        };
+      }
+    };
+
+    // PeerConnection might not be available immediately, check after a short delay
+    setTimeout(checkConnection, 100);
+
     call.on("stream", () => {
       // Host doesn't receive streams from viewers in one-way setup
       console.log("[RoomWebRTC] Unexpected stream from viewer:", viewerId);
@@ -280,12 +316,18 @@ class RoomWebRTCService {
       const viewer = this.viewers.get(viewerId);
       if (viewer) {
         viewer.mediaConnection = null;
+        viewer.mediaConnected = false;
         this.notifyViewersChange();
       }
     });
 
     call.on("error", (err) => {
       console.error("[RoomWebRTC] Media connection error with viewer:", viewerId, err);
+      const viewer = this.viewers.get(viewerId);
+      if (viewer) {
+        viewer.mediaConnected = false;
+        this.notifyViewersChange();
+      }
     });
   }
 
@@ -741,7 +783,7 @@ class RoomWebRTCService {
       viewerInfos.push({
         peerId: viewer.peerId,
         dataConnected: viewer.dataConnection?.open ?? false,
-        mediaConnected: viewer.mediaConnection !== null,
+        mediaConnected: viewer.mediaConnected,
         rtt: viewer.rtt,
       });
     });
