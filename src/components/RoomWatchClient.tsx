@@ -105,7 +105,7 @@ const RoomWatchClient = ({
       </div>
 
       {/* Desktop Chat Panel - Hidden on mobile, visible on large screens */}
-      <div className="hidden lg:block w-80 flex-shrink-0">
+      <div className="hidden lg:flex lg:flex-col w-80 flex-shrink-0 overflow-hidden">
         <RoomChat
           roomId={roomId}
           user={user}

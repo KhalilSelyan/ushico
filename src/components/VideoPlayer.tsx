@@ -1612,7 +1612,7 @@ const VideoPlayer = ({
 
       {/* Video container */}
       <div
-        className={`relative flex items-center justify-center rounded-xl ${
+        className={`relative flex items-center justify-center rounded-xl overflow-hidden ${
           isCustomFullscreen ? "w-full h-full" : "h-4/5 w-full bg-gray-500/5"
         }`}
         onPointerDown={

@@ -223,7 +223,7 @@ const RoomChat: FC<RoomChatProps> = ({
 
   return (
     <div
-      className={`flex flex-col h-full bg-white border-l border-gray-200 ${
+      className={`flex flex-col h-full bg-white border-l border-gray-200 overflow-hidden ${
         className || ""
       }`}
     >
@@ -318,7 +318,7 @@ const RoomChat: FC<RoomChatProps> = ({
       </div>
 
       {/* Reaction Buttons */}
-      <div className="border-t border-gray-200 p-2">
+      <div className="border-t border-gray-200 p-2 flex-shrink-0 overflow-hidden">
         <div className="flex justify-center">
           <ReactionButtons
             roomId={roomId}
