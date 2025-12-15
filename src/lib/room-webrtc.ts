@@ -826,6 +826,82 @@ class RoomWebRTCService {
   }
 
   /**
+   * Host: Get file stream playback info (for controls)
+   */
+  getFileStreamInfo(): { currentTime: number; duration: number; paused: boolean } | null {
+    if (!this.fileStreamVideo) return null;
+    return {
+      currentTime: this.fileStreamVideo.currentTime,
+      duration: this.fileStreamVideo.duration || 0,
+      paused: this.fileStreamVideo.paused,
+    };
+  }
+
+  /**
+   * Host: Play/pause file stream
+   */
+  async toggleFileStreamPlayback(): Promise<boolean> {
+    if (!this.fileStreamVideo) return false;
+
+    if (this.fileStreamVideo.paused) {
+      await this.fileStreamVideo.play();
+      // Resume canvas drawing
+      if (this.fileStreamCanvas) {
+        const ctx = this.fileStreamCanvas.getContext("2d")!;
+        const video = this.fileStreamVideo;
+        const drawFrame = () => {
+          if (video && !video.paused && !video.ended) {
+            ctx.drawImage(video, 0, 0, this.fileStreamCanvas!.width, this.fileStreamCanvas!.height);
+            this.fileStreamAnimationId = requestAnimationFrame(drawFrame);
+          }
+        };
+        drawFrame();
+      }
+      return true; // now playing
+    } else {
+      this.fileStreamVideo.pause();
+      if (this.fileStreamAnimationId) {
+        cancelAnimationFrame(this.fileStreamAnimationId);
+        this.fileStreamAnimationId = null;
+      }
+      return false; // now paused
+    }
+  }
+
+  /**
+   * Host: Seek file stream to specific time
+   */
+  seekFileStream(time: number): void {
+    if (!this.fileStreamVideo) return;
+    this.fileStreamVideo.currentTime = Math.max(0, Math.min(time, this.fileStreamVideo.duration || 0));
+  }
+
+  /**
+   * Host: Check if currently streaming a file
+   */
+  isFileStreaming(): boolean {
+    return this.fileStreamVideo !== null;
+  }
+
+  /**
+   * Host: Register callback for file stream time updates
+   */
+  onFileStreamTimeUpdate(callback: (currentTime: number, duration: number) => void): () => void {
+    if (!this.fileStreamVideo) return () => {};
+
+    const handler = () => {
+      if (this.fileStreamVideo) {
+        callback(this.fileStreamVideo.currentTime, this.fileStreamVideo.duration || 0);
+      }
+    };
+
+    this.fileStreamVideo.addEventListener("timeupdate", handler);
+    return () => {
+      this.fileStreamVideo?.removeEventListener("timeupdate", handler);
+    };
+  }
+
+  /**
    * Cleanup file stream resources
    */
   private cleanupFileStream(): void {

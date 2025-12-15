@@ -777,6 +777,10 @@ const VideoPlayer = ({
   const [viewers, setViewers] = useState<ViewerInfo[]>([]);
   const [reconnectInfo, setReconnectInfo] = useState<{ attempt: number; maxAttempts: number } | null>(null);
   const [streamHealth, setStreamHealth] = useState<"healthy" | "stalled" | "dead">("healthy");
+  const [isFileStream, setIsFileStream] = useState(false);
+  const [fileStreamTime, setFileStreamTime] = useState(0);
+  const [fileStreamDuration, setFileStreamDuration] = useState(0);
+  const [fileStreamPaused, setFileStreamPaused] = useState(false);
   const lastTimeUpdateRef = useRef<number>(Date.now());
   const webrtcServiceRef = useRef<RoomWebRTCService | null>(null);
   const rtcVideoRef = useRef<HTMLVideoElement>(null);
@@ -978,6 +982,29 @@ const VideoPlayer = ({
     };
   }, [streamMode, type, rtcConnectionState]);
 
+  // File stream time updates (host only)
+  useEffect(() => {
+    if (!isFileStream || !webrtcServiceRef.current || type !== "host") return;
+
+    const unsubscribe = webrtcServiceRef.current.onFileStreamTimeUpdate((time, dur) => {
+      setFileStreamTime(time);
+      setFileStreamDuration(dur);
+    });
+
+    // Also poll for pause state
+    const pollPaused = setInterval(() => {
+      const info = webrtcServiceRef.current?.getFileStreamInfo();
+      if (info) {
+        setFileStreamPaused(info.paused);
+      }
+    }, 250);
+
+    return () => {
+      unsubscribe();
+      clearInterval(pollPaused);
+    };
+  }, [isFileStream, type]);
+
   // Handle stream source selection (host only)
   const handleSelectSource = useCallback(
     async (source: WebRTCSource, file?: File) => {
@@ -985,6 +1012,7 @@ const VideoPlayer = ({
 
       try {
         setError(null);
+        setIsFileStream(false); // Reset file stream state
         let stream: MediaStream;
 
         switch (source) {
@@ -1000,6 +1028,13 @@ const VideoPlayer = ({
               return;
             }
             stream = await webrtcServiceRef.current.startFileStream(file);
+            setIsFileStream(true);
+            // Get initial duration
+            const info = webrtcServiceRef.current.getFileStreamInfo();
+            if (info) {
+              setFileStreamDuration(info.duration);
+              setFileStreamPaused(info.paused);
+            }
             break;
           default:
             return;
@@ -1034,6 +1069,10 @@ const VideoPlayer = ({
 
     webrtcServiceRef.current.stopStream();
     setIsStreaming(false);
+    setIsFileStream(false);
+    setFileStreamTime(0);
+    setFileStreamDuration(0);
+    setFileStreamPaused(false);
 
     if (rtcVideoRef.current) {
       rtcVideoRef.current.srcObject = null;
@@ -1421,6 +1460,25 @@ const VideoPlayer = ({
 
   const togglePlay = useCallback(async () => {
     if (type !== "host") return;
+
+    // Handle file stream playback
+    if (isFileStream && webrtcServiceRef.current) {
+      try {
+        const isNowPlaying = await webrtcServiceRef.current.toggleFileStreamPlayback();
+        setFileStreamPaused(!isNowPlaying);
+        if (isNowPlaying) {
+          announcements.hostResumed(user.name || "Host");
+        } else {
+          announcements.hostPaused(user.name || "Host");
+        }
+      } catch (err) {
+        console.error("Error toggling file stream:", err);
+        setError("Failed to toggle playback");
+      }
+      return;
+    }
+
+    // Handle URL video playback
     if (!sourceRef.current) return;
 
     try {
@@ -1439,7 +1497,7 @@ const VideoPlayer = ({
       console.error("Error toggling play state:", err);
       setError("Failed to toggle play state");
     }
-  }, [type, batchedSync, announcements, user.name]);
+  }, [type, batchedSync, announcements, user.name, isFileStream]);
 
   const handleVolumeChange = useCallback((newVolume: number) => {
     const clampedVolume = Math.max(0, Math.min(1, newVolume));
@@ -1487,23 +1545,37 @@ const VideoPlayer = ({
             toggleCustomFullscreen();
           }
           break;
-        case " ": // Space - play/pause (host only, URL mode)
+        case " ": // Space - play/pause (host only)
           event.preventDefault();
-          if (type === "host" && streamMode === "url") {
+          if (type === "host" && (streamMode === "url" || isFileStream)) {
             void togglePlay();
           }
           break;
         case "m": // Mute toggle
           handleVolumeChange(volume === 0 ? 1 : 0);
           break;
-        case "ArrowLeft": // Seek back 5s (host only, URL mode)
-          if (type === "host" && streamMode === "url" && sourceRef.current) {
-            sourceRef.current.currentTime = Math.max(0, sourceRef.current.currentTime - 5);
+        case "ArrowLeft": // Seek back 5s (host only)
+          if (type === "host") {
+            if (isFileStream && webrtcServiceRef.current) {
+              const info = webrtcServiceRef.current.getFileStreamInfo();
+              if (info) {
+                webrtcServiceRef.current.seekFileStream(Math.max(0, info.currentTime - 5));
+              }
+            } else if (streamMode === "url" && sourceRef.current) {
+              sourceRef.current.currentTime = Math.max(0, sourceRef.current.currentTime - 5);
+            }
           }
           break;
-        case "ArrowRight": // Seek forward 5s (host only, URL mode)
-          if (type === "host" && streamMode === "url" && sourceRef.current) {
-            sourceRef.current.currentTime = Math.min(duration, sourceRef.current.currentTime + 5);
+        case "ArrowRight": // Seek forward 5s (host only)
+          if (type === "host") {
+            if (isFileStream && webrtcServiceRef.current) {
+              const info = webrtcServiceRef.current.getFileStreamInfo();
+              if (info) {
+                webrtcServiceRef.current.seekFileStream(Math.min(info.duration, info.currentTime + 5));
+              }
+            } else if (streamMode === "url" && sourceRef.current) {
+              sourceRef.current.currentTime = Math.min(duration, sourceRef.current.currentTime + 5);
+            }
           }
           break;
         case "ArrowUp": // Volume up
@@ -1521,20 +1593,30 @@ const VideoPlayer = ({
     return () => {
       document.removeEventListener("keydown", handleKeydown);
     };
-  }, [isCustomFullscreen, toggleCustomFullscreen, toggleTrueFullscreen, type, streamMode, volume, duration, togglePlay, handleVolumeChange]);
+  }, [isCustomFullscreen, toggleCustomFullscreen, toggleTrueFullscreen, type, streamMode, volume, duration, togglePlay, handleVolumeChange, isFileStream]);
 
   const handleSeek = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!sourceRef.current || !progressRef.current) return;
+      if (!progressRef.current) return;
 
       const rect = progressRef.current.getBoundingClientRect();
       const pos = (event.clientX - rect.left) / rect.width;
-      const newTime = pos * duration;
 
+      // Handle file stream seeking
+      if (isFileStream && webrtcServiceRef.current) {
+        const newTime = pos * fileStreamDuration;
+        webrtcServiceRef.current.seekFileStream(newTime);
+        setFileStreamTime(newTime);
+        return;
+      }
+
+      // Handle URL video seeking
+      if (!sourceRef.current) return;
+      const newTime = pos * duration;
       sourceRef.current.currentTime = newTime;
       setCurrentTime(newTime);
     },
-    [duration]
+    [duration, isFileStream, fileStreamDuration]
   );
 
   useEffect(() => {
@@ -1651,7 +1733,7 @@ const VideoPlayer = ({
           isCustomFullscreen ? "w-full h-full" : "h-4/5 w-full bg-gray-500/5"
         }`}
         onPointerDown={
-          type === "host" && streamMode === "url"
+          type === "host" && (streamMode === "url" || isFileStream)
             ? async () => await togglePlay()
             : undefined
         }
@@ -1703,10 +1785,10 @@ const VideoPlayer = ({
 
         {/* Custom controls overlay */}
         <VideoControls
-          isPlaying={isPlaying}
+          isPlaying={isFileStream ? !fileStreamPaused : isPlaying}
           togglePlay={togglePlay}
-          currentTime={currentTime}
-          duration={duration}
+          currentTime={isFileStream ? fileStreamTime : currentTime}
+          duration={isFileStream ? fileStreamDuration : duration}
           formatTime={formatTime}
           handleSeek={handleSeek}
           progressRef={progressRef}
